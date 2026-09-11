@@ -1,0 +1,15 @@
+{
+  "fill" : {
+    "linear-gradient" : [ "display-p3:0.20000,0.20000,0.22000,1.00000", "display-p3:0.06000,0.06000,0.07000,1.00000" ],
+    "orientation" : { "start" : { "x" : 0.5, "y" : 0 }, "stop" : { "x" : 0.5, "y" : 1 } }
+  },
+  "groups" : [
+    { "name" : "Drop", "layers" : [ { "name" : "03-drop", "image-name" : "03-drop.png", "glass" : false } ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.5 }, "translucency" : { "enabled" : false, "value" : 0 } },
+    { "name" : "Ferrule", "layers" : [ { "name" : "02-ferrule", "image-name" : "02-ferrule.png", "glass" : false } ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 }, "translucency" : { "enabled" : false, "value" : 0 } },
+    { "name" : "Bristles", "layers" : [ { "name" : "01-bristles", "image-name" : "01-bristles.png", "glass" : false } ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.5 }, "translucency" : { "enabled" : false, "value" : 0 } }
+  ],
+  "supported-platforms" : { "squares" : "shared" }
+}

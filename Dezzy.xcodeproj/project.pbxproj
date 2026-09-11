@@ -12,16 +12,8 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		4A00000000000000000000A1 /* Dezzy */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Dezzy;
-			sourceTree = "<group>";
-		};
-		4A00000000000000000000A2 /* DezzyTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = DezzyTests;
-			sourceTree = "<group>";
-		};
+		4A00000000000000000000A1 /* Dezzy */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Dezzy; sourceTree = "<group>"; };
+		4A00000000000000000000A2 /* DezzyTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = DezzyTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +118,7 @@
 				};
 			};
 			buildConfigurationList = 6A00000000000000000000A1 /* Build configuration list for PBXProject "Dezzy" */;
+			compatibilityVersion = "Xcode 16.0.Superseded.1";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -249,6 +242,7 @@
 		7B00000000000000000000D1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
@@ -264,6 +258,7 @@
 		7B00000000000000000000E1 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
