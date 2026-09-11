@@ -604,27 +604,70 @@ final class RenderEngine {
     }
 
     /// Canvas composite placed under the view transform (canvas→view pixels),
-    /// over a transparency checkerboard (screen-fixed, like Photoshop's) and a
-    /// neutral surround filling the view.
+    /// over a transparency checkerboard and a neutral surround filling the
+    /// view.
+    ///
+    /// Magnified (more than one device pixel per document pixel), the
+    /// composite is built at canvas resolution and enlarged nearest-neighbour,
+    /// so document pixels show as hard-edged squares like Photoshop's rather
+    /// than a smooth blur. Minified it renders straight into view space as
+    /// before (§3 budget: the fit-zoom path is unchanged).
+    ///
+    /// The checkerboard keeps a fixed screen size at every zoom, like
+    /// Photoshop's, but is anchored to the canvas's top-left corner so it
+    /// scrolls with the image.
+    ///
+    /// The requested transform is first snapped so the canvas edges fall on
+    /// whole device pixels (`DisplayGeometry.pixelAligned`) — the overlay's
+    /// pixel grid snaps the same way.
     func displayImage(for document: Document,
-                      viewTransform: CGAffineTransform,
+                      viewTransform requestedTransform: CGAffineTransform,
                       viewPixelBounds: CGRect,
                       contentScale: CGFloat,
                       stroke: StrokePreview? = nil,
                       excludingLayer: UUID? = nil,
                       style: DisplayStyle = DisplayStyle()) -> CIImage {
-        let composite = compositeImage(for: document, outputTransform: viewTransform,
-                                       stroke: stroke, excludingLayer: excludingLayer)
+        let viewTransform = DisplayGeometry.pixelAligned(requestedTransform,
+                                                         canvasSize: document.canvasSize)
         let canvasScreenRect = document.canvasRect.applying(viewTransform)
+        let (sx, sy) = viewTransform.scaleComponents
+        let composite: CIImage
+        var checkerRect = canvasScreenRect
+        if min(sx, sy) > 1, viewTransform.isInvertible {
+            // Only the visible canvas region (plus a pixel of sampler slack)
+            // is built; CI pulls just that ROI.
+            let visibleCanvas = viewPixelBounds.applying(viewTransform.inverted())
+                .insetBy(dx: -1, dy: -1).integral
+                .intersection(document.canvasRect)
+            // Clamped, so every device pixel inside the whole-pixel canvas
+            // rect samples real canvas content, never what lies past its edge.
+            composite = visibleCanvas.isNull ? .empty()
+                : compositeImage(for: document, outputTransform: .identity,
+                                 stroke: stroke, excludingLayer: excludingLayer)
+                    .cropped(to: visibleCanvas)
+                    .clampedToExtent()
+                    .samplingNearest()
+                    .transformed(by: viewTransform)
+                    .cropped(to: canvasScreenRect)
+        } else {
+            composite = compositeImage(for: document, outputTransform: viewTransform,
+                                       stroke: stroke, excludingLayer: excludingLayer)
+            // Resampling below 100% pulls a little of whatever lies just past
+            // the canvas edge (usually transparency) into the outermost device
+            // pixel. Ending the checkerboard one device pixel short lets that
+            // soft edge fade into the surround instead of flashing the checker.
+            checkerRect = canvasScreenRect.insetBy(dx: 1, dy: 1)
+        }
 
         var checker = CIImage.empty()
         if let generator = CIFilter(name: "CICheckerboardGenerator") {
-            generator.setValue(CIVector(x: 0, y: 0), forKey: "inputCenter")
+            generator.setValue(CIVector(x: canvasScreenRect.minX, y: canvasScreenRect.maxY),
+                               forKey: "inputCenter")
             generator.setValue(style.checkerColorA, forKey: "inputColor0")
             generator.setValue(style.checkerColorB, forKey: "inputColor1")
             generator.setValue(style.checkerSquare * contentScale, forKey: "inputWidth")
             generator.setValue(1, forKey: "inputSharpness")
-            checker = generator.outputImage?.cropped(to: canvasScreenRect.intersection(viewPixelBounds)) ?? .empty()
+            checker = generator.outputImage?.cropped(to: checkerRect.intersection(viewPixelBounds)) ?? .empty()
         }
         let surround = CIImage(color: style.surroundColor).cropped(to: viewPixelBounds)
         return composite.composited(over: checker.composited(over: surround))

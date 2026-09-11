@@ -6,8 +6,10 @@ import XCTest
 
 /// Space pans the canvas mid-gesture WITHOUT cancelling the active tool
 /// (`CanvasController.mouseDragged` returns early while `spaceDown`), and
-/// `mouseUp` then derives the marquee/shape/gradient endpoint from the
-/// mouse-up position — which is a *different screen point* by then.
+/// `mouseUp` then derives the shape/gradient endpoint from the mouse-up
+/// position — which is a *different screen point* by then. (The marquee is the
+/// exception: Space mid-marquee moves the rectangle instead, as in Photoshop —
+/// see `MarqueeGestureTests`.)
 ///
 /// It nonetheless lands correctly, and these tests exist to keep it that way.
 /// The reason it works is not obvious from either function alone: the pan
@@ -22,6 +24,9 @@ import XCTest
 /// canvas on screen, or panning by anything other than the raw mouse delta,
 /// would silently start landing gestures where the user never dragged, with
 /// the error growing with the distance panned.
+///
+/// The shape tool pads its layer symmetrically around the dragged rectangle,
+/// so the new layer's centre is the drag's centre.
 final class SpacePanGestureTests: XCTestCase {
     private func makeStore() -> DocumentStore {
         var document = Document(canvasSize: CGSize(width: 400, height: 300))
@@ -32,13 +37,18 @@ final class SpacePanGestureTests: XCTestCase {
         return DocumentStore(document: document)
     }
 
-    /// Drag a marquee, hold space and pan a long way, then release. The
-    /// selection must be the rectangle that was dragged, not one shifted by
-    /// the pan.
-    func testMarqueeIgnoresAPanThatHappensBeforeMouseUp() throws {
-        let store = makeStore()
+    private func makeShapeController(_ store: DocumentStore) -> CanvasController {
         let controller = CanvasController(store: store)
-        store.activeTool = .marquee
+        store.activeTool = .shape
+        store.shapeStyle.kind = .rectangle
+        return controller
+    }
+
+    /// Drag a shape, hold space and pan a long way, then release. The shape
+    /// must cover the rectangle that was dragged, not one shifted by the pan.
+    func testShapeIgnoresAPanThatHappensBeforeMouseUp() throws {
+        let store = makeStore()
+        let controller = makeShapeController(store)
 
         let startCanvas = CGPoint(x: 50, y: 60)
         let endCanvas = CGPoint(x: 150, y: 160)
@@ -57,20 +67,18 @@ final class SpacePanGestureTests: XCTestCase {
         controller.mouseUp(at: heldViewPoint + CGPoint(x: 90, y: 70),
                            modifiers: [], clickCount: 1)
 
-        let bounds = try XCTUnwrap(store.selection.path?.boundingBox)
-        XCTAssertEqual(bounds.minX, min(startCanvas.x, endCanvas.x), accuracy: 1)
-        XCTAssertEqual(bounds.minY, min(startCanvas.y, endCanvas.y), accuracy: 1)
-        XCTAssertEqual(bounds.width, abs(endCanvas.x - startCanvas.x), accuracy: 1)
-        XCTAssertEqual(bounds.height, abs(endCanvas.y - startCanvas.y), accuracy: 1)
+        XCTAssertEqual(store.document.layers.count, 2, "the drag created a shape layer")
+        let bounds = try XCTUnwrap(store.document.layers.last).canvasBounds
+        XCTAssertEqual(bounds.midX, (startCanvas.x + endCanvas.x) / 2, accuracy: 1)
+        XCTAssertEqual(bounds.midY, (startCanvas.y + endCanvas.y) / 2, accuracy: 1)
     }
 
     /// A drag that RESUMES after the pan must use where it resumed to. Guards
     /// the obvious over-correction: freezing the endpoint at the pre-pan point
     /// would pass the test above and break this one.
-    func testMarqueeUsesTheResumedEndpointAfterAPan() throws {
+    func testShapeUsesTheResumedEndpointAfterAPan() throws {
         let store = makeStore()
-        let controller = CanvasController(store: store)
-        store.activeTool = .marquee
+        let controller = makeShapeController(store)
 
         let startCanvas = CGPoint(x: 20, y: 20)
         controller.mouseDown(at: store.viewport.toView(startCanvas), modifiers: [], clickCount: 1)
@@ -86,9 +94,10 @@ final class SpacePanGestureTests: XCTestCase {
         controller.mouseDragged(to: store.viewport.toView(resumed), modifiers: [])
         controller.mouseUp(at: store.viewport.toView(resumed), modifiers: [], clickCount: 1)
 
-        let bounds = try XCTUnwrap(store.selection.path?.boundingBox)
-        XCTAssertEqual(bounds.maxX, resumed.x, accuracy: 1, "the resumed endpoint must win")
-        XCTAssertEqual(bounds.maxY, resumed.y, accuracy: 1)
+        let bounds = try XCTUnwrap(store.document.layers.last).canvasBounds
+        XCTAssertEqual(bounds.midX, (startCanvas.x + resumed.x) / 2, accuracy: 1,
+                       "the resumed endpoint must win")
+        XCTAssertEqual(bounds.midY, (startCanvas.y + resumed.y) / 2, accuracy: 1)
     }
 
     /// A plain click still deselects: no drag was ever applied, so there is no

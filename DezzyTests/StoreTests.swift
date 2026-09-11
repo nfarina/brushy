@@ -176,6 +176,41 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(store.document.layers.map(\.transform), originalTransforms)
     }
 
+    func testPlacedAndRecenteredLayersLandOnWholePixels() {
+        let image = GeneratedImages.solid(width: 101, height: 51, r: 200, g: 40, b: 40,
+                                          colorSpace: DezzyColorSpace.displayP3)
+        let canvas = CGSize(width: 400, height: 300)
+        let placed = DocumentStore.placedLayer(image, named: "odd", canvasSize: canvas)
+        XCTAssertEqual(placed.transform.tx, placed.transform.tx.rounded())
+        XCTAssertEqual(placed.transform.ty, placed.transform.ty.rounded())
+        XCTAssertEqual(placed.canvasBounds.midX, 200, accuracy: 0.5)
+
+        var offset = placed
+        offset.transform = CGAffineTransform(translationX: 13, y: 7)
+        let recentered = DocumentStore.recentered(offset, canvasSize: canvas)
+        XCTAssertEqual(recentered.canvasBounds.minX, recentered.canvasBounds.minX.rounded())
+        XCTAssertEqual(recentered.canvasBounds.minY, recentered.canvasBounds.minY.rounded())
+    }
+
+    func testCanvasSizeChangesRecenterTheViewAtTheSameZoom() {
+        let (store, um) = makeStore() // 400×300
+        store.viewport.viewSize = CGSize(width: 1000, height: 800)
+        store.viewport.isInitialized = true
+        store.viewport.setZoom(2, anchorView: CGPoint(x: 37, y: 91)) // user-adjusted, off-centre
+        commitGrouped(um) {
+            store.combineSelection(CGPath(rect: CGRect(x: 10, y: 20, width: 100, height: 60),
+                                          transform: nil), mode: .replace)
+        }
+        commitGrouped(um) { store.cropToSelection() }
+        XCTAssertEqual(store.viewport.zoom, 2)
+        XCTAssertEqual(store.viewport.origin, CGPoint(x: (1000 - 200) / 2, y: (800 - 120) / 2))
+
+        um.undo()
+        XCTAssertEqual(store.viewport.zoom, 2)
+        XCTAssertEqual(store.viewport.origin, CGPoint(x: (1000 - 800) / 2, y: (800 - 600) / 2),
+                       "undoing the crop re-centres the restored canvas too")
+    }
+
     func testCropToSelectionIsOneUndoableStepAndKeepsTheSelection() {
         let (store, um) = makeStore()
         let originalTransforms = store.document.layers.map(\.transform)

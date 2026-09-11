@@ -96,6 +96,11 @@ final class DocumentStore: ObservableObject {
     @Published var gridVisible = Defaults.value(Defaults.Keys.gridVisible) {
         didSet { Defaults.set(gridVisible, for: Defaults.Keys.gridVisible) }
     }
+    /// SEED-ONLY. View → Show Pixel Grid: Photoshop's hairlines between
+    /// document pixels above `DisplayGeometry.pixelGridMinimumZoom`.
+    @Published var pixelGridVisible = Defaults.value(Defaults.Keys.pixelGridVisible) {
+        didSet { Defaults.set(pixelGridVisible, for: Defaults.Keys.pixelGridVisible) }
+    }
     /// Major gridline spacing, canvas px. LIVE.
     @Published var gridSpacing = AppSettings.shared.gridSpacing {
         didSet { AppSettings.shared.gridSpacing = gridSpacing }
@@ -627,7 +632,9 @@ final class DocumentStore: ObservableObject {
     }
 
     private func apply(_ snapshot: Snapshot) {
+        let previousCanvasSize = document.canvasSize
         document = snapshot.document
+        if document.canvasSize != previousCanvasSize { recenterViewport() }
         selection = snapshot.selection
         if let id = snapshot.selectedLayerID, document[layerID: id] != nil {
             selectedLayerID = id
@@ -659,6 +666,18 @@ final class DocumentStore: ObservableObject {
         }
         if cropSession != nil, activeTool == .crop {
             cropSession = CropSession(rect: document.canvasRect)
+        }
+    }
+
+    /// A canvas that changed size — crop, Image/Canvas Size, or stepping
+    /// history across one — is re-centred in the window at the current zoom,
+    /// as Photoshop does; a view still in its fit state refits instead (§4).
+    private func recenterViewport() {
+        guard viewport.isInitialized else { return }
+        if viewport.hasUserAdjusted {
+            viewport.center(canvasSize: document.canvasSize)
+        } else {
+            viewport.fit(canvasSize: document.canvasSize)
         }
     }
 
@@ -752,9 +771,13 @@ final class DocumentStore: ObservableObject {
         if w > canvasSize.width || h > canvasSize.height {
             scale = min(canvasSize.width / w, canvasSize.height / h)
         }
+        var tx = (canvasSize.width - w * scale) / 2
+        var ty = (canvasSize.height - h * scale) / 2
+        // At 100% land on whole pixels: an odd size difference would centre
+        // the image half a pixel off the grid and resample it soft.
+        if scale == 1 { tx.round(); ty.round() }
         let transform = CGAffineTransform(scaleX: scale, y: scale)
-            .concatenating(CGAffineTransform(translationX: (canvasSize.width - w * scale) / 2,
-                                             y: (canvasSize.height - h * scale) / 2))
+            .concatenating(CGAffineTransform(translationX: tx, y: ty))
         return Layer(name: name, source: image, transform: transform)
     }
 
@@ -2536,12 +2559,17 @@ final class DocumentStore: ObservableObject {
             scale = min(canvasSize.width / bounds.width,
                         canvasSize.height / bounds.height)
         }
+        var center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        if scale == 1 {
+            // Whole-pixel landing, as in `placedLayer`.
+            center = CGPoint(x: ((canvasSize.width - bounds.width) / 2).rounded() + bounds.width / 2,
+                             y: ((canvasSize.height - bounds.height) / 2).rounded() + bounds.height / 2)
+        }
         var updated = layer
         updated.transform = layer.transform
             .concatenating(CGAffineTransform(translationX: -bounds.midX, y: -bounds.midY))
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
-            .concatenating(CGAffineTransform(translationX: canvasSize.width / 2,
-                                             y: canvasSize.height / 2))
+            .concatenating(CGAffineTransform(translationX: center.x, y: center.y))
         return updated
     }
 
@@ -2876,7 +2904,6 @@ final class DocumentStore: ObservableObject {
         guard size != document.canvasSize else { return }
         commit("Image Size", document: document.scaled(to: size))
         canvasSizeChosenExplicitly = true
-        if !viewport.hasUserAdjusted { viewport.fit(canvasSize: size) }
     }
 
     func resizeCanvas(to newSize: CGSize, anchor: CGPoint) {
@@ -2885,7 +2912,6 @@ final class DocumentStore: ObservableObject {
         guard size != document.canvasSize else { return }
         commit("Canvas Size", document: document.resizingCanvas(to: size, anchor: anchor))
         canvasSizeChosenExplicitly = true
-        if !viewport.hasUserAdjusted { viewport.fit(canvasSize: size) }
     }
 
     // MARK: - Export

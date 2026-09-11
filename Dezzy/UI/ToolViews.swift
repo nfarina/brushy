@@ -318,7 +318,9 @@ struct ToolOptionsBar: View {
                 .foregroundStyle(.secondary)
                 .font(.callout)
             Divider().frame(height: 18)
-            Text("⇧ adds · ⌥ subtracts · ⌘D deselects")
+            Text(store.activeTool == .marquee
+                 ? "⇧ adds · ⌥ subtracts · while dragging: ⇧ square, ⌥ from centre, Space moves · ⌘D deselects"
+                 : "⇧ adds · ⌥ subtracts · ⌘D deselects")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

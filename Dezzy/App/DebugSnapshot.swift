@@ -64,6 +64,10 @@ enum DebugSnapshot {
                                           sheetSettlePasses: dialogSettlePasses - 1)
             }
             defer { exit(0) }
+            if ProcessInfo.processInfo.environment["DEZZY_SNAPSHOT_DEBUG"] == "1" {
+                print("DEBUG first responder: "
+                      + (window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"))
+            }
             window.contentView?.layoutSubtreeIfNeeded()
             write(window: window, store: store, to: URL(fileURLWithPath: path))
         }
@@ -121,6 +125,11 @@ enum DebugSnapshot {
         case "transform":
             store.selectLayer(store.document.layers.last?.id)
             store.enterTransformMode()
+        case "pixelgrid":
+            // 1200% on the canvas centre: past the pixel grid's 500% threshold.
+            let center = CGPoint(x: store.document.canvasSize.width / 2,
+                                 y: store.document.canvasSize.height / 2)
+            store.viewport.setZoom(12, anchorView: store.viewport.toView(center))
         case "crop":
             store.activeTool = .crop
             if var session = store.cropSession {

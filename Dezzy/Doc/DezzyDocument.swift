@@ -188,6 +188,7 @@ final class DezzyDocument: NSDocument {
     @objc func toggleLockGuides(_ sender: Any?) { store.guidesLocked.toggle() }
     @objc func clearGuides(_ sender: Any?) { store.clearGuides() }
     @objc func toggleGrid(_ sender: Any?) { store.gridVisible.toggle() }
+    @objc func togglePixelGrid(_ sender: Any?) { store.pixelGridVisible.toggle() }
     @objc func toggleSnapping(_ sender: Any?) { store.snappingEnabled.toggle() }
 
     /// Layer-structure actions grey out while type is being edited in place,
@@ -311,6 +312,9 @@ final class DezzyDocument: NSDocument {
             return true
         case #selector(toggleGrid(_:)):
             (item as? NSMenuItem)?.state = store.gridVisible ? .on : .off
+            return true
+        case #selector(togglePixelGrid(_:)):
+            (item as? NSMenuItem)?.state = store.pixelGridVisible ? .on : .off
             return true
         case #selector(toggleSnapping(_:)):
             (item as? NSMenuItem)?.state = store.snappingEnabled ? .on : .off

@@ -109,6 +109,31 @@ extension SelectionState {
         return SelectionState(normalizing: Self.boundaryBand(of: base, width: width))
     }
 
+    /// Rectangular Marquee geometry, snapped to the pixel grid so the
+    /// selection covers whole pixels as in Photoshop. Unsnapped, a drag at a
+    /// fractional zoom lands between pixels and Fill / Image > Crop leave
+    /// anti-aliased partial pixels along the edges.
+    ///
+    /// `square` (⇧ held mid-drag) forces equal sides, the longer drag axis
+    /// winning; `fromCenter` (⌥ held mid-drag) makes `anchor` the centre, not
+    /// a corner. The anchor snaps first and the drag extent rounds to whole
+    /// pixels, so a snapped square stays square and a centred rect symmetric.
+    static func marqueeRect(from anchor: CGPoint, to current: CGPoint,
+                            square: Bool = false, fromCenter: Bool = false) -> CGRect {
+        let origin = CGPoint(x: anchor.x.rounded(), y: anchor.y.rounded())
+        var dx = (current.x - origin.x).rounded()
+        var dy = (current.y - origin.y).rounded()
+        if square {
+            let side = max(abs(dx), abs(dy))
+            dx = dx < 0 ? -side : side
+            dy = dy < 0 ? -side : side
+        }
+        let start = fromCenter ? CGPoint(x: origin.x - dx, y: origin.y - dy) : origin
+        let end = CGPoint(x: origin.x + dx, y: origin.y + dy)
+        return CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                      width: abs(end.x - start.x), height: abs(end.y - start.y))
+    }
+
     /// Image > Crop's frame: the selection's bounding box, expanded outward to
     /// whole pixels and clipped to the canvas. A lasso crops to its bounds, as
     /// in Photoshop. nil when there is no selection or it misses the canvas.

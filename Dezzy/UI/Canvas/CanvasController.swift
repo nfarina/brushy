@@ -10,7 +10,8 @@ final class CanvasController {
 
     /// Space-bar pan: works mid-tool without cancelling the tool — while
     /// space is down drags pan the viewport; tool gestures use canvas-space
-    /// anchors, so they resume seamlessly on release.
+    /// anchors, so they resume seamlessly on release. The one exception is a
+    /// marquee being drawn, which space repositions instead (Photoshop).
     var spaceDown = false {
         didSet { refreshCursor() }
     }
@@ -249,6 +250,15 @@ final class CanvasController {
         currentViewPoint = viewPoint
         defer { lastViewPoint = viewPoint }
 
+        // Space mid-marquee moves the rectangle being drawn: the anchor
+        // travels with the pointer, so the size holds; releasing space
+        // resumes sizing from the moved anchor.
+        if spaceDown, case .marquee(let startCanvas, let mode) = drag {
+            let delta = viewport.fromView(viewPoint) - viewport.fromView(lastViewPoint)
+            drag = .marquee(startCanvas: startCanvas + delta, mode: mode)
+            applyDrag(at: viewPoint)
+            return
+        }
         // Space pans mid-gesture without cancelling the tool.
         if spaceDown || isPanDrag {
             let delta = viewPoint - lastViewPoint
@@ -262,7 +272,7 @@ final class CanvasController {
     /// so Shift/Option/Cmd take effect live, like Photoshop.
     func modifiersChanged(_ modifiers: NSEvent.ModifierFlags) {
         currentModifiers = modifiers
-        if drag != nil, !spaceDown, !isPanDrag {
+        if drag != nil, !isPanDrag, !spaceDown || isMarqueeDrag {
             applyDrag(at: currentViewPoint)
         }
         syncBrushRingVisibility()
@@ -327,10 +337,11 @@ final class CanvasController {
             store.previewSelectionPath = nil
             let endCanvas = viewport.fromView(viewPoint)
             let screenDistance = (viewPoint - viewport.toView(startCanvas)).length
+            let rect = SelectionState.marqueeRect(from: startCanvas, to: endCanvas,
+                                                  square: shiftDown, fromCenter: optionDown)
             if screenDistance < 2 {
                 store.deselect()
-            } else {
-                let rect = normalizedRect(from: startCanvas, to: endCanvas)
+            } else if rect.width >= 1, rect.height >= 1 {
                 store.combineSelection(CGPath(rect: rect, transform: nil), mode: mode)
             }
         case .lasso(let points, let mode):
@@ -479,6 +490,10 @@ final class CanvasController {
                 delta = snapped.delta
                 guides = snapped.guides
             }
+            // Whole-pixel moves, as in Photoshop: a drag at a fractional zoom
+            // would otherwise park the layer between pixels, resampling every
+            // one of them soft.
+            delta = CGPoint(x: delta.x.rounded(), y: delta.y.rounded())
             let transform = TransformMath.moved(initial: initial, delta: delta)
             if viaSession {
                 store.updateTransformSession(transform)
@@ -562,6 +577,8 @@ final class CanvasController {
                 delta = snapped.delta
                 guides = snapped.guides
             }
+            // Whole pixels, like layer moves: keeps a marquee's edges on the grid.
+            delta = CGPoint(x: delta.x.rounded(), y: delta.y.rounded())
             store.updateSelectionTransformSession(TransformMath.moved(initial: initial,
                                                                       delta: delta))
             store.activeGuides = guides
@@ -641,7 +658,11 @@ final class CanvasController {
             store.updateCropSession(session)
 
         case .marquee(let startCanvas, _):
-            let rect = normalizedRect(from: startCanvas, to: canvasPoint)
+            // ⇧/⌥ at mouse-down chose add/subtract (`combineMode`); held
+            // during the drag they also mean square / from centre, read live
+            // so pressing or releasing mid-drag takes effect, as in Photoshop.
+            let rect = SelectionState.marqueeRect(from: startCanvas, to: canvasPoint,
+                                                  square: shiftDown, fromCenter: optionDown)
             store.previewSelectionPath = CGPath(rect: rect, transform: nil)
 
         case .lasso(var points, let mode):
@@ -729,8 +750,13 @@ final class CanvasController {
         cursor(at: hoverViewPoint ?? currentViewPoint).set()
     }
 
+    private var isMarqueeDrag: Bool {
+        if case .marquee = drag { return true }
+        return false
+    }
+
     private func cursor(at viewPoint: CGPoint) -> NSCursor {
-        if spaceDown || isPanDrag {
+        if (spaceDown && !isMarqueeDrag) || isPanDrag {
             return (drag != nil && isPanDrag) ? .closedHand : .openHand
         }
         if case .rotate = drag { return Cursors.rotate }
@@ -913,11 +939,6 @@ final class CanvasController {
     }
 
     // MARK: - Crop geometry
-
-    private func normalizedRect(from a: CGPoint, to b: CGPoint) -> CGRect {
-        CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
-               width: abs(b.x - a.x), height: abs(b.y - a.y)).standardized
-    }
 
     private func cropRect(from start: CGPoint, to current: CGPoint, aspect: CGSize?) -> CGRect {
         var dx = current.x - start.x

@@ -176,6 +176,9 @@ extension Defaults {
         static let guidesLocked = DefaultsKey("view.guidesLocked", default: false, domain: .view)
         /// SEED-ONLY.
         static let gridVisible = DefaultsKey("view.gridVisible", default: false, domain: .view)
+        /// SEED-ONLY — View → Show Pixel Grid. On by default, like Photoshop's;
+        /// it only draws above 500% zoom anyway.
+        static let pixelGridVisible = DefaultsKey("view.pixelGridVisible", default: true, domain: .view)
         /// LIVE — View → Snap is the master switch over all snapping; changing
         /// the default mid-session should not leave open windows disagreeing.
         static let snappingEnabled = DefaultsKey("view.snappingEnabled", default: true, domain: .view)
@@ -273,7 +276,7 @@ extension Defaults {
         /// that no domain is empty.
         static let all: [AnyDefaultsKey] = [
             rulersVisible.erased, guidesVisible.erased, guidesLocked.erased,
-            gridVisible.erased, snappingEnabled.erased, gridSpacing.erased,
+            gridVisible.erased, pixelGridVisible.erased, snappingEnabled.erased, gridSpacing.erased,
             gridSubdivisions.erased, guideColor.erased, gridColor.erased,
             brushSize.erased, brushHardness.erased, brushOpacity.erased,
             eyedropperSampleSize.erased, autoSelectLayer.erased, featherAmount.erased,

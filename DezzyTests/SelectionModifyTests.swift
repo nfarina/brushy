@@ -8,6 +8,36 @@ import XCTest
 final class SelectionModifyTests: XCTestCase {
     private let square = CGRect(x: 0, y: 0, width: 100, height: 100)
 
+    // MARK: - Marquee pixel alignment
+
+    func testMarqueeRectSnapsCornersToThePixelGrid() {
+        XCTAssertEqual(SelectionState.marqueeRect(from: CGPoint(x: 10.4, y: 20.6),
+                                                  to: CGPoint(x: 60.5, y: 5.2)),
+                       CGRect(x: 10, y: 5, width: 51, height: 16),
+                       "each corner rounds to the nearest grid line, in either drag direction")
+        XCTAssertEqual(SelectionState.marqueeRect(from: CGPoint(x: 3.2, y: 3.2),
+                                                  to: CGPoint(x: 3.4, y: 9)).width, 0,
+                       "a sub-pixel-wide drag collapses rather than selecting a sliver")
+    }
+
+    func testMarqueeRectSquareAndFromCentreConstraints() {
+        XCTAssertEqual(SelectionState.marqueeRect(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 40.3, y: 22),
+                                                  square: true),
+                       CGRect(x: 10, y: 10, width: 30, height: 30), "the longer drag axis sets the side")
+        XCTAssertEqual(SelectionState.marqueeRect(from: CGPoint(x: 10, y: 10), to: CGPoint(x: -5, y: 30),
+                                                  square: true),
+                       CGRect(x: -10, y: 10, width: 20, height: 20), "the square grows toward the pointer")
+        XCTAssertEqual(SelectionState.marqueeRect(from: CGPoint(x: 50.2, y: 49.8), to: CGPoint(x: 60.4, y: 45),
+                                                  fromCenter: true),
+                       CGRect(x: 40, y: 45, width: 20, height: 10), "the anchor is the centre")
+        XCTAssertEqual(SelectionState.marqueeRect(from: CGPoint(x: 50, y: 50), to: CGPoint(x: 53, y: 58),
+                                                  square: true, fromCenter: true),
+                       CGRect(x: 42, y: 42, width: 16, height: 16))
+        let snappedSquare = SelectionState.marqueeRect(from: CGPoint(x: 3.4, y: 7.6),
+                                                       to: CGPoint(x: 20.5, y: 11.1), square: true)
+        XCTAssertEqual(snappedSquare.width, snappedSquare.height, "snapping never breaks the square")
+    }
+
     // MARK: - Image > Crop frame
 
     func testCropRectRoundsOutwardAndClipsToCanvas() {

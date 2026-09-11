@@ -134,11 +134,19 @@ final class CanvasHostView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// The canvas owns the keyboard when a window opens, so tool keys work
+    /// immediately. With macOS Keyboard Navigation turned on, the window
+    /// otherwise gives initial focus to the first control in its key-view
+    /// loop — the options bar's Auto-Select checkbox — and bare-key
+    /// shortcuts go there instead.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.initialFirstResponder = self
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window else { return }
-            if window.firstResponder === window { window.makeFirstResponder(self) }
+            // Never pull focus out of text being typed.
+            if !(window.firstResponder is NSText) { window.makeFirstResponder(self) }
         }
     }
 

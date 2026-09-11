@@ -293,6 +293,9 @@ enum MainMenuBuilder {
                      action: #selector(DezzyDocument.clearGuides(_:)), keyEquivalent: "")
         view.addItem(withTitle: "Show Grid",
                      action: #selector(DezzyDocument.toggleGrid(_:)), keyEquivalent: "'")
+        // Photoshop's View ▸ Show ▸ Pixel Grid; draws only above 500% zoom.
+        view.addItem(withTitle: "Show Pixel Grid",
+                     action: #selector(DezzyDocument.togglePixelGrid(_:)), keyEquivalent: "")
         let snap = view.addItem(withTitle: "Snap",
                                 action: #selector(DezzyDocument.toggleSnapping(_:)),
                                 keyEquivalent: ";")

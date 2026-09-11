@@ -107,7 +107,7 @@ final class DefaultsTests: XCTestCase {
         }
         // Spot-check the count against the declared keys above: bumping one
         // without the other is the drift this guards.
-        XCTAssertEqual(all.count, 27)
+        XCTAssertEqual(all.count, 28)
     }
 
     /// A garbage value of the wrong type must not crash or leak through.

@@ -47,6 +47,9 @@ final class CanvasOverlayView: NSView {
 
         // View furniture draws first — under selection ants, session
         // boxes and the crop dim, over the composite.
+        if store.pixelGridVisible, viewport.zoom > DisplayGeometry.pixelGridMinimumZoom {
+            drawPixelGrid(viewport: viewport)
+        }
         if store.gridVisible { drawGrid(viewport: viewport) }
         if store.guidesVisible { drawUserGuides(viewport: viewport) }
 
@@ -365,6 +368,40 @@ final class CanvasOverlayView: NSView {
         majorColor.setStroke()
         majors.lineWidth = 1
         majors.stroke()
+    }
+
+    /// Photoshop's pixel grid: a one-device-pixel hairline at every boundary
+    /// between document pixels once zoomed past 500%. Positions come from
+    /// `DisplayGeometry` on the same pixel-aligned transform the composite
+    /// renders with, so each line sits exactly where the magnified pixels
+    /// change rather than drifting a device pixel off.
+    private func drawPixelGrid(viewport: Viewport) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let scale = window?.backingScaleFactor ?? 2
+        let canvasSize = store.document.canvasSize
+        let aligned = DisplayGeometry.pixelAligned(
+            viewport.viewTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)),
+            canvasSize: canvasSize)
+        let visible = CGRect(origin: .zero, size: canvasSize).applying(aligned)
+            .intersection(CGRect(x: 0, y: 0, width: bounds.width * scale,
+                                 height: bounds.height * scale))
+        guard !visible.isNull, !visible.isEmpty else { return }
+        let lines = DisplayGeometry.pixelGridLines(aligned: aligned, canvasSize: canvasSize,
+                                                   visible: visible)
+        let hairline = 1 / scale
+        var rects: [CGRect] = []
+        rects.reserveCapacity(lines.columns.count + lines.rows.count)
+        for column in lines.columns {
+            rects.append(CGRect(x: CGFloat(column) / scale, y: visible.minY / scale,
+                                width: hairline, height: visible.height / scale))
+        }
+        for row in lines.rows {
+            rects.append(CGRect(x: visible.minX / scale, y: CGFloat(row) / scale,
+                                width: visible.width / scale, height: hairline))
+        }
+        // Mid-grey at half strength reads on both black and white pixels.
+        ctx.setFillColor(CGColor(gray: 0.55, alpha: 0.5))
+        ctx.fill(rects)
     }
 
     // MARK: Smart guides
