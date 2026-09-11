@@ -81,6 +81,7 @@ final class DezzyDocument: NSDocument {
         store.commitPendingSessions()
         store.canvasSizeRequested = true
     }
+    @objc func cropToSelection(_ sender: Any?) { store.cropToSelection() }
     @objc func freeTransform(_ sender: Any?) { store.enterTransformMode() }
     @objc func newPaintLayer(_ sender: Any?) { store.addPaintLayer() }
     @objc func flipHorizontal(_ sender: Any?) { store.flipSelectedLayer(vertical: false) }
@@ -193,7 +194,7 @@ final class DezzyDocument: NSDocument {
     /// like Photoshop.
     private static let actionsDisabledDuringTextEditing: Set<Selector> = [
         #selector(freeTransform(_:)), #selector(transformSelection(_:)),
-        #selector(selectSubject(_:)),
+        #selector(selectSubject(_:)), #selector(cropToSelection(_:)),
         #selector(duplicateLayer(_:)),
         #selector(duplicateLayerToDocument(_:)), #selector(duplicateLayerToNewDocument(_:)),
         #selector(deleteLayer(_:)), #selector(mergeDown(_:)),
@@ -293,6 +294,8 @@ final class DezzyDocument: NSDocument {
             return !store.selection.isEmpty && store.selectionTransformSession == nil
         case #selector(selectSubject(_:)):
             return store.selectedLayerEffectivelyVisible
+        case #selector(cropToSelection(_:)):
+            return store.canCropToSelection
         case #selector(exportFlattened(_:)):
             return !store.document.layers.isEmpty
         // View-furniture toggles: always enabled; validation doubles

@@ -118,6 +118,11 @@ enum MainMenuBuilder {
                                        action: #selector(DezzyDocument.showCanvasSize(_:)),
                                        keyEquivalent: "c")
         canvasSize.keyEquivalentModifierMask = [.command, .option]
+        image.addItem(.separator())
+        // Image > Crop: crop to the selection's bounds. Photoshop ships it
+        // without a shortcut; ⌘K is the common custom binding.
+        image.addItem(withTitle: "Crop",
+                      action: #selector(DezzyDocument.cropToSelection(_:)), keyEquivalent: "k")
         main.addItem(submenu: image, title: "Image")
 
         // Layer

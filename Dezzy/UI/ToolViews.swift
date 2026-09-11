@@ -23,10 +23,172 @@ struct ToolStrip: View {
                             in: RoundedRectangle(cornerRadius: 6))
                 .help("\(tool.displayName) (\(tool.shortcutKey))")
             }
+            ColorSwatches(store: store)
+                .padding(.top, 8)
             Spacer()
         }
         .padding(.top, 10)
         .frame(maxHeight: .infinity)
+    }
+}
+
+/// Photoshop's foreground/background chips under the tools: foreground over
+/// background, swap arrow top-right, default-colours icon bottom-left. X and D
+/// do the same from the canvas. Colours are sRGB like every UI well (§7).
+private struct ColorSwatches: View {
+    @ObservedObject var store: DocumentStore
+
+    private let chip: CGFloat = 22
+    private let offset: CGFloat = 12
+    private let icon: CGFloat = 11
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            swatch(\.backgroundColor, help: "Background colour")
+                .offset(x: offset, y: offset)
+            swatch(\.foregroundColor, help: "Foreground colour")
+            Button { store.swapBrushColors() } label: {
+                SwapArrow()
+                    .stroke(Color.primary, style: StrokeStyle(lineWidth: 1.2, lineCap: .round,
+                                                              lineJoin: .round))
+                    .frame(width: icon, height: icon)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .offset(x: chip + 1, y: 0)
+            .help("Swap foreground and background colours (X)")
+            Button { store.resetBrushColors() } label: {
+                DefaultColorsIcon()
+                    .frame(width: icon, height: icon)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .offset(x: 0, y: chip + 1)
+            .help("Default foreground and background colours (D)")
+        }
+        .frame(width: chip + offset, height: chip + offset, alignment: .topLeading)
+    }
+
+    private func swatch(_ keyPath: ReferenceWritableKeyPath<DocumentStore, CGColor>,
+                        help: String) -> some View {
+        ColorChip(color: store[keyPath: keyPath])
+            .frame(width: chip, height: chip)
+            .overlay(PanelColorWell(color: store[keyPath: keyPath], toolTip: help) {
+                store[keyPath: keyPath] = $0
+            })
+    }
+}
+
+private struct ColorChip: View {
+    let color: CGColor
+
+    var body: some View {
+        ZStack {
+            if color.alpha < 1 {
+                Canvas { context, size in
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.white))
+                    let cell: CGFloat = 5
+                    for row in 0..<Int((size.height / cell).rounded(.up)) {
+                        for col in 0..<Int((size.width / cell).rounded(.up)) where (row + col) % 2 == 1 {
+                            context.fill(Path(CGRect(x: CGFloat(col) * cell, y: CGFloat(row) * cell,
+                                                     width: cell, height: cell)),
+                                         with: .color(Color(white: 0.8)))
+                        }
+                    }
+                }
+            }
+            Rectangle().fill(Color(cgColor: color))
+        }
+        .overlay(Rectangle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1).padding(1))
+        .overlay(Rectangle().strokeBorder(Color.black.opacity(0.75), lineWidth: 1))
+    }
+}
+
+/// Two-headed quarter arc, pointing left at the top and down at the right.
+private struct SwapArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 11
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * s, y: rect.minY + y * s)
+        }
+        var path = Path()
+        path.addArc(center: p(2, 9), radius: 6.5 * s,
+                    startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        path.move(to: p(4, 0.5)); path.addLine(to: p(2, 2.5)); path.addLine(to: p(4, 4.5))
+        path.move(to: p(6.5, 7)); path.addLine(to: p(8.5, 9)); path.addLine(to: p(10.5, 7))
+        return path
+    }
+}
+
+/// Miniature black-over-white chips.
+private struct DefaultColorsIcon: View {
+    var body: some View {
+        GeometryReader { geo in
+            let side = geo.size.width * 0.6
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(.white)
+                    .overlay(Rectangle().strokeBorder(Color.black.opacity(0.6), lineWidth: 0.5))
+                    .frame(width: side, height: side)
+                    .offset(x: geo.size.width - side, y: geo.size.height - side)
+                Rectangle().fill(.black)
+                    .overlay(Rectangle().strokeBorder(Color.white.opacity(0.7), lineWidth: 0.5))
+                    .frame(width: side, height: side)
+            }
+        }
+    }
+}
+
+/// An invisible NSColorWell laid over a chip. The well supplies the colour
+/// panel plumbing — `activate(true)` detaches whichever well (including the
+/// options bar's ColorPickers) was driving the shared panel, so only one colour
+/// edits at a time — while the chip above does the drawing.
+private struct PanelColorWell: NSViewRepresentable {
+    let color: CGColor
+    let toolTip: String
+    let onChange: (CGColor) -> Void
+
+    func makeNSView(context: Context) -> ChipColorWell {
+        let well = ChipColorWell()
+        well.alphaValue = 0
+        well.target = context.coordinator
+        well.action = #selector(Coordinator.colorChanged(_:))
+        return well
+    }
+
+    func updateNSView(_ well: ChipColorWell, context: Context) {
+        context.coordinator.onChange = onChange
+        well.toolTip = toolTip
+        // Compare in sRGB: the panel hands back colours in its own space, and
+        // re-assigning an equal colour would bounce through the panel again.
+        if well.color.usingColorSpace(.sRGB)?.cgColor != color {
+            well.color = NSColor(cgColor: color) ?? .black
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
+
+    final class Coordinator: NSObject {
+        var onChange: (CGColor) -> Void
+        init(onChange: @escaping (CGColor) -> Void) { self.onChange = onChange }
+
+        @objc func colorChanged(_ sender: NSColorWell) {
+            onChange((sender.color.usingColorSpace(.sRGB) ?? .black).cgColor)
+        }
+    }
+
+    final class ChipColorWell: NSColorWell {
+        /// Straight to the full colour panel, skipping the macOS 13+ well's
+        /// swatch popover — a Photoshop chip opens the picker on click.
+        override func mouseDown(with event: NSEvent) {
+            NSColorPanel.shared.showsAlpha = true
+            activate(true)
+            NSColorPanel.shared.orderFront(nil)
+        }
+
+        /// The well's own subviews (the popover arrow) must not take the click.
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            frame.contains(point) ? self : nil
+        }
     }
 }
 

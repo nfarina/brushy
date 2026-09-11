@@ -1431,6 +1431,24 @@ final class DocumentStore: ObservableObject {
         cropSession = CropSession(rect: document.canvasRect)
     }
 
+    var canCropToSelection: Bool { selection.cropRect(in: document.canvasRect) != nil }
+
+    /// Image > Crop (⌘K): crops the canvas to the selection's bounds without
+    /// switching tools. Same non-destructive `Document.cropped(to:)` as the
+    /// crop tool; the selection survives, shifted with the content, so it
+    /// still outlines the same pixels (Photoshop keeps it too).
+    func cropToSelection() {
+        commitPendingSessions()
+        guard let rect = selection.cropRect(in: document.canvasRect),
+              rect != document.canvasRect else { return }
+        let shift = CGAffineTransform(translationX: -rect.minX, y: -rect.minY)
+        commit("Crop", document: document.cropped(to: rect),
+               selection: selection.transformed(by: shift))
+        if activeTool == .crop {
+            cropSession = CropSession(rect: document.canvasRect)
+        }
+    }
+
     // MARK: - Selection (Stage A)
 
     func combineSelection(_ path: CGPath, mode: SelectionState.CombineMode) {

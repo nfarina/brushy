@@ -109,6 +109,16 @@ extension SelectionState {
         return SelectionState(normalizing: Self.boundaryBand(of: base, width: width))
     }
 
+    /// Image > Crop's frame: the selection's bounding box, expanded outward to
+    /// whole pixels and clipped to the canvas. A lasso crops to its bounds, as
+    /// in Photoshop. nil when there is no selection or it misses the canvas.
+    func cropRect(in canvasRect: CGRect) -> CGRect? {
+        guard let path else { return nil }
+        let rect = path.boundingBoxOfPath.integral.intersection(canvasRect)
+        guard !rect.isNull, rect.width >= 1, rect.height >= 1 else { return nil }
+        return rect
+    }
+
     /// The selection mapped through `transform` (canvas space → canvas space).
     /// Commit step of Select > Transform Selection. A degenerate (zero-scale)
     /// transform collapses to `.empty`.

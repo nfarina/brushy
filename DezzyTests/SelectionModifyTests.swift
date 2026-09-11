@@ -8,6 +8,19 @@ import XCTest
 final class SelectionModifyTests: XCTestCase {
     private let square = CGRect(x: 0, y: 0, width: 100, height: 100)
 
+    // MARK: - Image > Crop frame
+
+    func testCropRectRoundsOutwardAndClipsToCanvas() {
+        let canvas = CGRect(x: 0, y: 0, width: 400, height: 300)
+        XCTAssertNil(SelectionState.empty.cropRect(in: canvas))
+        XCTAssertEqual(rectSelection(CGRect(x: 10.3, y: 20.7, width: 50.2, height: 40.1)).cropRect(in: canvas),
+                       CGRect(x: 10, y: 20, width: 51, height: 41))
+        XCTAssertEqual(rectSelection(CGRect(x: -30, y: 250, width: 100, height: 100)).cropRect(in: canvas),
+                       CGRect(x: 0, y: 250, width: 70, height: 50))
+        XCTAssertNil(rectSelection(CGRect(x: 500, y: 0, width: 50, height: 50)).cropRect(in: canvas),
+                     "a selection entirely off the canvas has nothing to crop to")
+    }
+
     // MARK: - Helpers
 
     private func rectSelection(_ rect: CGRect) -> SelectionState {

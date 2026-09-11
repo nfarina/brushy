@@ -176,6 +176,41 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(store.document.layers.map(\.transform), originalTransforms)
     }
 
+    func testCropToSelectionIsOneUndoableStepAndKeepsTheSelection() {
+        let (store, um) = makeStore()
+        let originalTransforms = store.document.layers.map(\.transform)
+        XCTAssertFalse(store.canCropToSelection, "no selection, nothing to crop to")
+
+        // A fractional lasso-ish triangle: crops to its outward-rounded bounds.
+        let triangle = CGMutablePath()
+        triangle.move(to: CGPoint(x: 50.4, y: 30.6))
+        triangle.addLine(to: CGPoint(x: 249.5, y: 30.6))
+        triangle.addLine(to: CGPoint(x: 150, y: 179.2))
+        triangle.closeSubpath()
+        commitGrouped(um) { store.combineSelection(triangle, mode: .replace) }
+        XCTAssertTrue(store.canCropToSelection)
+
+        commitGrouped(um) { store.cropToSelection() }
+        XCTAssertEqual(store.document.canvasSize, CGSize(width: 200, height: 150))
+        XCTAssertEqual(store.document.layers[0].transform.tx, originalTransforms[0].tx - 50)
+        XCTAssertEqual(store.document.layers[0].transform.ty, originalTransforms[0].ty - 30)
+        XCTAssertEqual(um.undoActionName, "Crop")
+        let bounds = store.selection.path!.boundingBoxOfPath
+        XCTAssertEqual(bounds.minX, 0.4, accuracy: 0.001, "selection shifts with the content")
+        XCTAssertEqual(bounds.minY, 0.6, accuracy: 0.001)
+
+        // Cropping again to the same bounds is a no-op, not a history entry.
+        let entryCount = store.historyEntries.count
+        store.cropToSelection()
+        XCTAssertEqual(store.document.canvasSize, CGSize(width: 200, height: 150))
+        XCTAssertEqual(store.historyEntries.count, entryCount)
+
+        um.undo()
+        XCTAssertEqual(store.document.canvasSize, CGSize(width: 400, height: 300))
+        XCTAssertEqual(store.document.layers.map(\.transform), originalTransforms)
+        XCTAssertEqual(store.selection.path?.boundingBoxOfPath.minX ?? 0, 50.4, accuracy: 0.001)
+    }
+
     func testSelectionAndMaskLifecycle() {
         let (store, um) = makeStore()
         let layerID = store.document.layers[0].id
