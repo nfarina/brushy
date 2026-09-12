@@ -251,6 +251,28 @@ struct LayersPanel: View {
         }
     }
 
+    // MARK: - Smart vs pixel layers
+
+    /// "Smart" in the Photoshop sense: the layer's pixels are not the truth —
+    /// a photo's original bytes, a live text/shape spec, an adjustment that
+    /// has no pixels at all. Editing one rasterizes it first.
+    static func isSmart(_ layer: Layer) -> Bool {
+        if case .raster = layer.kind { return !layer.isPaintable }
+        return true
+    }
+
+    /// Photoshop badges smart objects on the thumbnail; same idea, one glyph
+    /// per kind (and for an adjustment it doubles as the only clue, since its
+    /// thumbnail is blank).
+    static func smartBadge(for layer: Layer) -> String? {
+        switch layer.kind {
+        case .adjustment(let spec): return spec.systemImage
+        case .text: return "textformat"
+        case .shape: return "square.on.circle"
+        case .raster: return layer.isPaintable ? nil : "photo"
+        }
+    }
+
     // MARK: - Layer rows
 
     @ViewBuilder
@@ -306,6 +328,16 @@ struct LayersPanel: View {
                         RoundedRectangle(cornerRadius: 3)
                             .stroke(isSelected && !store.maskTargeted ? Color.accentColor : Color.white.opacity(0.15),
                                     lineWidth: isSelected && !store.maskTargeted ? 2 : 1))
+                    .overlay(alignment: .bottomTrailing) {
+                        if let badge = Self.smartBadge(for: layer) {
+                            Image(systemName: badge)
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(2)
+                                .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 3))
+                                .padding(1)
+                        }
+                    }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Layer thumbnail, \(layer.name)")
@@ -357,8 +389,14 @@ struct LayersPanel: View {
             } else {
                 Text(layer.name)
                     .lineLimit(1)
-                    .font(.callout)
+                    // Italic marks a layer whose pixels aren't its own to
+                    // edit — a photo, live text or shape, an adjustment. The
+                    // thumbnail carries a matching badge.
+                    .font(Self.isSmart(layer) ? .callout.italic() : .callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(Self.isSmart(layer)
+                          ? "Smart layer — editing its pixels rasterizes it first"
+                          : "Pixel layer")
                     .onTapGesture(count: 2) {
                         editingRowID = layer.id
                         editingName = layer.name

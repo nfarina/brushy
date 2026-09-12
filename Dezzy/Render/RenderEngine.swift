@@ -733,11 +733,17 @@ final class RenderEngine {
             let visibleCanvas = viewPixelBounds.applying(viewTransform.inverted())
                 .insetBy(dx: -1, dy: -1).integral
                 .intersection(document.canvasRect)
-            // Clamped, so every device pixel inside the whole-pixel canvas
+            // Laid over a transparent canvas FIRST: a composite's extent is
+            // its content, so a canvas only partly covered would otherwise be
+            // clamped from the content's edge — smearing that edge's pixels
+            // across the empty part of the canvas. With the extent pinned to
+            // the canvas, the clamp only repeats true edge pixels, which is
+            // all it is for: every device pixel inside the whole-pixel canvas
             // rect samples real canvas content, never what lies past its edge.
             composite = visibleCanvas.isNull ? .empty()
                 : compositeImage(for: document, outputTransform: .identity,
                                  stroke: stroke, excludingLayer: excludingLayer)
+                    .composited(over: CIImage(color: .clear).cropped(to: document.canvasRect))
                     .cropped(to: visibleCanvas)
                     .clampedToExtent()
                     .samplingNearest()

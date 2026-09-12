@@ -119,6 +119,31 @@ final class DisplayPixelTests: XCTestCase {
         }
     }
 
+    /// Zoomed in, the empty part of a canvas must stay empty: the composite is
+    /// clamped at the canvas edge to keep the border clean, and clamping from
+    /// the CONTENT's edge instead smeared its last row and column across
+    /// everything beyond it.
+    func testMagnifiedEmptyCanvasIsNotSmearedWithTheContentsEdge() {
+        var document = Document(canvasSize: CGSize(width: 8, height: 8))
+        document.layers = [Layer(name: "corner",
+                                 source: GeneratedImages.solid(width: 2, height: 2, r: 255, g: 0, b: 0,
+                                                               colorSpace: DezzyColorSpace.sRGB),
+                                 isPaintable: true)] // bottom-left 2×2 only
+        let bounds = CGRect(x: 0, y: 0, width: 64, height: 64)
+        let image = engine.displayImage(for: document,
+                                        viewTransform: CGAffineTransform(scaleX: 8, y: 8),
+                                        viewPixelBounds: bounds, contentScale: 1)
+
+        // Canvas (6,6) is far from the content: checkerboard, not red.
+        let empty = pixel(image, bounds: bounds, x: 52, y: 12)
+        XCTAssertLessThan(Int(empty.r) - Int(empty.b), 40,
+                          "empty canvas must show the checkerboard, not smeared content — got \(empty)")
+        // The content itself is still there and still crisp.
+        let content = pixel(image, bounds: bounds, x: 4, y: 60)
+        XCTAssertGreaterThan(content.r, 240)
+        XCTAssertLessThan(content.b, 20)
+    }
+
     func testCheckerboardScrollsWithTheCanvas() {
         let document = Document(canvasSize: CGSize(width: 32, height: 32))
         let bounds = CGRect(x: 0, y: 0, width: 48, height: 32)
