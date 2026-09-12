@@ -119,6 +119,11 @@ final class DocumentStore: ObservableObject {
     /// Select > Transform Selection (gestures on the selection outline).
     @Published var selectionTransformSession: SelectionTransformSession?
     @Published var cropSession: CropSession?
+    /// Magic Wand options. Deliberately not persisted, like the gradient's:
+    /// they read as per-session tool state rather than preferences.
+    @Published var wandTolerance: Double = 32
+    @Published var wandContiguous = true
+    @Published var wandSamplesAllLayers = false
     @Published var activeGuides: [SmartGuideLine] = []
     /// In-progress marquee/lasso outline, canvas space.
     @Published var previewSelectionPath: CGPath?
@@ -1884,6 +1889,59 @@ final class DocumentStore: ObservableObject {
         let path = CGPath(rect: document.canvasRect, transform: nil)
         commit("Select All", document: document,
                selection: SelectionState.empty.combining(path, mode: .replace))
+    }
+
+    // MARK: - Magic Wand
+
+    /// One wand click: find the matching region and combine it into the
+    /// selection, as one history entry like any other selection gesture.
+    func selectByWand(at canvasPoint: CGPoint, mode: SelectionState.CombineMode) {
+        commitPendingSessions()
+        brushHint = nil
+        guard let pixels = wandPixels() else {
+            brushHint = "Select a layer to use the wand on"
+            return
+        }
+        // Canvas space is y-up, the buffer is row-0-at-top (§4).
+        let x = Int(canvasPoint.x.rounded(.down))
+        let row = pixels.height - 1 - Int(canvasPoint.y.rounded(.down))
+        guard x >= 0, row >= 0, x < pixels.width, row < pixels.height else { return }
+
+        let region = MagicWand.region(in: pixels, seedX: x, seedY: row,
+                                      tolerance: Int(wandTolerance.rounded()),
+                                      contiguous: wandContiguous)
+        let path = MagicWand.path(from: region, width: pixels.width, height: pixels.height)
+        guard !path.isEmpty else { return }
+        combineSelection(path, mode: mode)
+    }
+
+    /// The canvas as RGBA8 for the wand to search: the selected layer alone,
+    /// or the whole composite with Sample All Layers on (Photoshop's option).
+    private func wandPixels() -> MagicWand.Pixels? {
+        let rect = document.canvasRect.integral
+        guard rect.width >= 1, rect.height >= 1 else { return nil }
+        let image: CIImage
+        if wandSamplesAllLayers {
+            image = RenderEngine.shared.compositeImage(for: document)
+        } else {
+            guard let layer = selectedLayer, selectedLayerEffectivelyVisible else { return nil }
+            image = RenderEngine.shared.layerImage(layer, outputTransform: .identity)
+        }
+        guard let cgImage = RenderEngine.shared.context.createCGImage(
+            image, from: rect, format: .RGBA8, colorSpace: DezzyColorSpace.sRGB) else { return nil }
+        let width = cgImage.width, height = cgImage.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        data.withUnsafeMutableBytes { buffer in
+            guard let base = buffer.baseAddress,
+                  let ctx = CGContext(data: base, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: DezzyColorSpace.sRGB,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                return
+            }
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return MagicWand.Pixels(data: data, width: width, height: height)
     }
 
     // MARK: - Select > Modify

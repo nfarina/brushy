@@ -183,6 +183,9 @@ final class CanvasController {
             drag = .marquee(startCanvas: canvasPoint, mode: combineMode())
         case .lasso:
             drag = .lasso(points: [canvasPoint], mode: combineMode())
+        case .wand:
+            // A wand click is the whole gesture — nothing to drag.
+            store.selectByWand(at: canvasPoint, mode: combineMode())
         case .crop:
             guard var session = store.cropSession else { return }
             if let handle = hitCropHandle(viewPoint, session) {
@@ -828,7 +831,7 @@ final class CanvasController {
                 return guide.axis == .vertical ? .resizeLeftRight : .resizeUpDown
             }
             return .arrow
-        case .marquee, .lasso: return .crosshair
+        case .marquee, .lasso, .wand: return .crosshair
         case .crop:
             if let session = store.cropSession, let handle = hitCropHandle(viewPoint, session) {
                 let direction = CGPoint(x: handle.unitPoint.x - 0.5, y: handle.unitPoint.y - 0.5)

@@ -171,6 +171,7 @@ struct ToolOptionsBar: View {
                         moveOptions
                     }
                 case .marquee, .lasso: selectionOptions
+                case .wand: wandOptions
                 case .crop: cropOptions
                 case .eyedropper: eyedropperOptions
                 case .brush, .eraser: brushOptions
@@ -285,6 +286,32 @@ struct ToolOptionsBar: View {
             Text(store.activeTool == .marquee
                  ? "⇧ adds · ⌥ subtracts · while dragging: ⇧ square, ⌥ from centre, Space moves · ⌘D deselects"
                  : "⇧ adds · ⌥ subtracts · ⌘D deselects")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var wandOptions: some View {
+        HStack(spacing: 8) {
+            Text("Tolerance").font(.callout)
+            TextField("32", value: Binding(
+                get: { store.wandTolerance },
+                set: { store.wandTolerance = min(max($0, 0), 255) }),
+                format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 52)
+                .multilineTextAlignment(.trailing)
+                .help("How far a pixel's colour may differ from the one clicked, 0–255")
+            Toggle(isOn: $store.wandContiguous) { Text("Contiguous") }
+                .toggleStyle(.checkbox)
+                .font(.caption)
+                .help("Off selects every matching pixel on the layer, not just the patch clicked")
+            Toggle(isOn: $store.wandSamplesAllLayers) { Text("Sample All Layers") }
+                .toggleStyle(.checkbox)
+                .font(.caption)
+                .help("Match against the composite instead of the selected layer alone")
+            Divider().frame(height: 18)
+            Text("⇧ adds · ⌥ subtracts · ⌘D deselects")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

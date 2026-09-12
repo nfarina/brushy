@@ -5,6 +5,7 @@ enum Tool: String, CaseIterable, Identifiable {
     case move
     case marquee
     case lasso
+    case wand         // selects by colour; traced into a path (MagicWand)
     case crop
     case eyedropper   // samples the composite into the colour wells
     case brush
@@ -20,6 +21,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .move: return "Move"
         case .marquee: return "Rectangular Marquee"
         case .lasso: return "Lasso"
+        case .wand: return "Magic Wand"
         case .crop: return "Crop"
         case .eyedropper: return "Eyedropper"
         case .brush: return "Brush"
@@ -35,6 +37,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .move: return "V"
         case .marquee: return "M"
         case .lasso: return "L"
+        case .wand: return "W"
         case .crop: return "C"
         case .eyedropper: return "I"
         case .brush: return "B"
@@ -50,6 +53,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .move: return "arrow.up.and.down.and.arrow.left.and.right"
         case .marquee: return "rectangle.dashed"
         case .lasso: return "lasso"
+        case .wand: return "wand.and.stars"
         case .crop: return "crop"
         case .eyedropper: return "eyedropper"
         case .brush: return "paintbrush.pointed"

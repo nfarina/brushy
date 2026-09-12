@@ -323,6 +323,7 @@ final class CanvasHostView: NSView {
         case "v": store.activeTool = .move
         case "m": store.activeTool = .marquee
         case "l": store.activeTool = .lasso
+        case "w": store.activeTool = .wand
         case "c": store.activeTool = .crop
         case "b": store.activeTool = .brush
         case "e": store.activeTool = .eraser
