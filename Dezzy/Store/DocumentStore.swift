@@ -683,6 +683,9 @@ final class DocumentStore: ObservableObject {
 
     private func discardSessions() {
         transformSession = nil
+        // History stepping replaces the document wholesale: a float's base
+        // document no longer describes anything.
+        selectionFloat = nil
         selectionTransformSession = nil
         activeGuides = []
         previewSelectionPath = nil
@@ -1333,6 +1336,16 @@ final class DocumentStore: ObservableObject {
     func enterTransformMode() {
         commitAnySelectionTransformSession()
         guard transformSession == nil else { return }
+        // With a selection up, ⌘T transforms the selected PIXELS, not the
+        // whole layer (Photoshop): float them first and run the ordinary
+        // session on the float. Its base document is the one from before the
+        // lift, so Esc unwinds the lift along with the transform.
+        if !selection.isEmpty, let float = beginSelectionFloat(),
+           let floating = document[layerID: float.floatLayerID] {
+            transformSession = TransformSession(layer: floating,
+                                                baseDocument: float.baseDocument)
+            return
+        }
         guard let layer = selectedLayer, selectedLayerEffectivelyVisible else { return }
         transformSession = TransformSession(layer: layer, baseDocument: document)
     }
@@ -1376,6 +1389,16 @@ final class DocumentStore: ObservableObject {
         guard let session = transformSession else { return }
         transformSession = nil
         activeGuides = []
+        // A floating selection lands as one entry; an untouched box unwinds
+        // the lift instead, so ⌘T then Return changes nothing.
+        if selectionFloat != nil {
+            if session.hasChanges {
+                commitSelectionFloat(actionName: "Free Transform")
+            } else {
+                cancelSelectionFloat()
+            }
+            return
+        }
         if session.hasChanges {
             commit("Free Transform", document: document)
         }
@@ -1385,6 +1408,12 @@ final class DocumentStore: ObservableObject {
         guard let session = transformSession else { return }
         transformSession = nil
         activeGuides = []
+        if let float = selectionFloat {
+            // The session's base document predates the lift, so restoring it
+            // also puts the floated pixels back where they came from.
+            selectionFloat = nil
+            selectedLayerID = float.sourceLayerID
+        }
         setLiveDocument(session.baseDocument)
     }
 
@@ -1411,6 +1440,161 @@ final class DocumentStore: ObservableObject {
         commitAnyTransformSession()
         commitAnySelectionTransformSession()
         commitAnyTextSession()
+    }
+
+    // MARK: - Floating selection (Move / Free Transform on a selection)
+
+    /// A selection lifted off its layer and riding above it — Photoshop's
+    /// floating selection (§5). The Move tool drags it and ⌘T transforms it,
+    /// instead of either moving the whole layer.
+    ///
+    /// Landing it stamps the pixels back into a paint layer (one layer, as in
+    /// Photoshop). An imported photo instead keeps every byte and gets a
+    /// hide-mask, with the float staying a layer of its own: invariant 5 (a
+    /// photo's pixels are never rewritten) applied to moving pixels, the same
+    /// routing Cut uses.
+    struct SelectionFloat {
+        /// The document before the lift — Esc and unmoved drags restore it.
+        let baseDocument: Document
+        let baseSelection: SelectionState
+        let sourceLayerID: UUID
+        let floatLayerID: UUID
+        /// Paint layers absorb the float again on commit; photos keep it.
+        let stampsBack: Bool
+        let initialTransform: CGAffineTransform
+        /// History name when the gesture lands without one of its own.
+        let actionName: String
+    }
+
+    @Published private(set) var selectionFloat: SelectionFloat?
+
+    /// Lifts the selection's pixels onto a temporary layer directly above
+    /// their own, and returns it — nil when there is nothing liftable, in
+    /// which case callers fall back to moving the whole layer.
+    ///
+    /// `cutting: false` leaves the source untouched, so ⌥-drag duplicates the
+    /// pixels rather than moving them.
+    @discardableResult
+    func beginSelectionFloat(cutting: Bool = true) -> SelectionFloat? {
+        commitPendingSessions()
+        guard selectionFloat == nil, let path = selection.path,
+              let layer = selectedLayer, selectedLayerEffectivelyVisible,
+              let index = document.layerIndex(of: layer.id) else { return nil }
+        let rect = path.boundingBoxOfPath.intersection(layer.canvasBounds).integral
+        guard rect.width >= 1, rect.height >= 1 else { return nil }
+
+        // Baked at full opacity with the layer's opacity carried on the float
+        // instead — the same split Copy uses (`writeCopy`), so the pixels
+        // stay exact rather than being multiplied down twice.
+        let deep = layer.source.bitsPerComponent > 8
+        let texture = MaskFactory.selectionTexture(rect: rect, selection: path,
+                                                   featherCanvasPx: CGFloat(featherAmount))
+        var bakeLayer = layer
+        bakeLayer.opacity = 1
+        guard let baked = RenderEngine.shared.renderLayerRegion(bakeLayer, croppedTo: rect,
+                                                                selection: texture,
+                                                                sixteenBit: deep) else { return nil }
+        var floatLayer = Layer(name: "\(layer.name) selection", source: baked,
+                               transform: CGAffineTransform(translationX: rect.minX, y: rect.minY),
+                               opacity: layer.opacity, isPaintable: true,
+                               blendMode: layer.blendMode)
+        floatLayer.groupID = layer.groupID
+
+        // Where the hole goes mirrors Cut's routing exactly.
+        var holed: Layer? = layer
+        var stampsBack = false
+        if cutting {
+            if maskTargeted, layer.mask != nil {
+                holed = Self.maskFilled(layer, path: path, gray: 0)
+            } else if layer.isPaintable {
+                holed = Self.pixelsFilled(layer, path: path, color: nil)
+                stampsBack = true
+            } else if layer.mask != nil {
+                holed = Self.maskFilled(layer, path: path, gray: 0)
+            } else {
+                var target = layer
+                target.mask = Mask(texture: MaskTexture(width: target.source.width,
+                                                        height: target.source.height,
+                                                        fill: 255),
+                                   isEnabled: true)
+                holed = Self.maskFilled(target, path: path, gray: 0)
+            }
+        } else if layer.isPaintable {
+            // ⌥-drag on a paint layer: the copy merges back into the same
+            // layer, so the duplicate lands in the pixels it came from.
+            stampsBack = true
+        }
+        guard let holed else { return nil }
+
+        var doc = document.replacingLayer(holed)
+        doc.layers.insert(floatLayer, at: index + 1)
+        let float = SelectionFloat(baseDocument: document, baseSelection: selection,
+                                   sourceLayerID: layer.id, floatLayerID: floatLayer.id,
+                                   stampsBack: stampsBack,
+                                   initialTransform: floatLayer.transform,
+                                   actionName: cutting ? "Move Selection" : "Duplicate Selection")
+        selectionFloat = float
+        setLiveDocument(doc)
+        maskTargeted = false
+        selectedLayerID = floatLayer.id
+        return float
+    }
+
+    /// Lands a floating selection as exactly ONE history entry. The selection
+    /// travels with the pixels, as in Photoshop.
+    func commitSelectionFloat(actionName: String? = nil) {
+        guard let float = selectionFloat else { return }
+        selectionFloat = nil
+        guard let floatLayer = document[layerID: float.floatLayerID] else { return }
+        // Canvas-space motion of the float: undo its lift position, apply
+        // where it ended up.
+        let moved = float.initialTransform.inverted().concatenating(floatLayer.transform)
+        var doc = document
+        if float.stampsBack, let target = doc[layerID: float.sourceLayerID],
+           let stamped = Self.stamping(floatLayer, into: target) {
+            doc = doc.removingLayer(id: float.floatLayerID).replacingLayer(stamped)
+            selectedLayerID = float.sourceLayerID
+        }
+        commit(actionName ?? float.actionName, document: doc,
+               selection: float.baseSelection.transformed(by: moved))
+    }
+
+    /// Drops a float and restores the document from before the lift: Esc, and
+    /// gestures that never moved (which must leave no history behind).
+    func cancelSelectionFloat() {
+        guard let float = selectionFloat else { return }
+        selectionFloat = nil
+        selectedLayerID = float.sourceLayerID
+        setLiveDocument(float.baseDocument)
+    }
+
+    /// Draws a float's pixels into `layer`'s own grid — the paint-layer
+    /// landing. Fresh sourceID: new pixels never reuse the old identity
+    /// (invariant 4). Every non-pixel field is carried over explicitly, so a
+    /// grouped, clipped or styled layer survives the stamp.
+    private static func stamping(_ float: Layer, into layer: Layer) -> Layer? {
+        guard layer.transform.isInvertible,
+              let ctx = CGContext(data: nil,
+                                  width: layer.source.width, height: layer.source.height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: DezzyColorSpace.displayP3,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        ctx.draw(layer.source, in: layer.sourceRect)
+        ctx.saveGState()
+        // float source → canvas → this layer's source grid.
+        ctx.concatenate(float.transform.concatenating(layer.transform.inverted()))
+        ctx.setAlpha(CGFloat(float.opacity))
+        ctx.draw(float.source, in: float.sourceRect)
+        ctx.restoreGState()
+        guard let image = ctx.makeImage() else { return nil }
+        return Layer(id: layer.id, sourceID: UUID(), name: layer.name,
+                     source: image, transform: layer.transform,
+                     opacity: layer.opacity, isVisible: layer.isVisible,
+                     mask: layer.mask, isPaintable: true, kind: .raster,
+                     blendMode: layer.blendMode, isClippedToBelow: layer.isClippedToBelow,
+                     groupID: layer.groupID, effects: layer.effects)
     }
 
     // MARK: - Crop tool

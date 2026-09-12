@@ -245,7 +245,9 @@ struct ToolOptionsBar: View {
             Divider().frame(height: 18)
             alignOptions
             Divider().frame(height: 18)
-            Text("⇧-click adds to the selection · ⌥-drag duplicates · ⌘T to transform")
+            Text(store.selection.isEmpty
+                 ? "⇧-click adds to the selection · ⌥-drag duplicates · ⌘T to transform"
+                 : "Dragging moves the selected pixels · ⌥-drag duplicates them · ⌘T transforms them")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

@@ -136,6 +136,18 @@ final class CanvasController {
                 refreshCursor()
                 return
             }
+            // With a selection up, the Move tool drags the selected PIXELS,
+            // wherever on the canvas the drag starts (Photoshop). ⌥ duplicates
+            // them instead of cutting them out. Falls through to moving the
+            // whole layer when there is nothing liftable under the selection.
+            if !store.selection.isEmpty,
+               let float = store.beginSelectionFloat(cutting: !optionDown) {
+                drag = .moveLayer(layerID: float.floatLayerID, startCanvas: canvasPoint,
+                                  initial: float.initialTransform, viaSession: false,
+                                  moved: false, duplicated: false, shiftAtDown: false,
+                                  startView: viewPoint)
+                return
+            }
             // move tool: click-to-select and ⌥-drag duplicate. The ⌥ state
             // latches at mouse-down (modifiers are re-read live mid-drag, and
             // releasing ⌥ must not un-duplicate).
@@ -303,6 +315,16 @@ final class CanvasController {
                         let duplicated, let shiftAtDown, let startView):
             store.activeGuides = []
             let screenDistance = (viewPoint - startView).length
+            // A floating selection: land it, or unwind the lift if the drag
+            // never actually moved (a click must leave no history).
+            if store.selectionFloat != nil {
+                if moved {
+                    store.commitSelectionFloat()
+                } else {
+                    store.cancelSelectionFloat()
+                }
+                return
+            }
             if duplicated {
                 // The live document already holds the copy; land the whole
                 // ⌥-drag gesture as one "Duplicate Layer" undo step.
