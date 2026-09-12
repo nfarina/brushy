@@ -108,10 +108,23 @@ enum LayerKind: Codable, Equatable {
     case raster
     case text(TextSpec)
     case shape(ShapeSpec)
+    /// A layer with no pixels that re-renders what is below it.
+    case adjustment(AdjustmentSpec)
 
+    /// Text and shapes re-rasterise from their spec. An adjustment has no
+    /// rasterisation at all, so it is deliberately NOT vector by this test —
+    /// which is what keeps `VectorRasterizer` and the shape/text tools away
+    /// from it.
     var isVector: Bool {
-        if case .raster = self { return false }
-        return true
+        switch self {
+        case .raster, .adjustment: return false
+        case .text, .shape: return true
+        }
+    }
+
+    var adjustmentSpec: AdjustmentSpec? {
+        if case .adjustment(let spec) = self { return spec }
+        return nil
     }
 
     var textSpec: TextSpec? {

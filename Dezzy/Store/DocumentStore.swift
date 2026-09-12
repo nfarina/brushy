@@ -1354,6 +1354,8 @@ final class DocumentStore: ObservableObject {
         // whole layer (Photoshop): float them first and run the ordinary
         // session on the float. Its base document is the one from before the
         // lift, so Esc unwinds the lift along with the transform.
+        // Adjustment layers have nothing to transform.
+        if selectedLayer?.kind.adjustmentSpec != nil { return }
         if !selection.isEmpty, let float = beginSelectionFloat(),
            let floating = document[layerID: float.floatLayerID] {
             transformSession = TransformSession(layer: floating,
@@ -1533,8 +1535,12 @@ final class DocumentStore: ObservableObject {
     /// True for anything whose pixels are off limits: an imported photo, or a
     /// text/shape layer still driven by its spec.
     static func needsRasterize(_ layer: Layer) -> Bool {
-        if case .raster = layer.kind { return !layer.isPaintable }
-        return true
+        switch layer.kind {
+        case .raster: return !layer.isPaintable
+        // An adjustment has no pixels to rasterise — it IS its spec.
+        case .adjustment: return false
+        case .text, .shape: return true
+        }
     }
 
     var canRasterizeSelectedLayer: Bool { selectedLayer.map(Self.needsRasterize) ?? false }
@@ -1891,6 +1897,52 @@ final class DocumentStore: ObservableObject {
                selection: SelectionState.empty.combining(path, mode: .replace))
     }
 
+    // MARK: - Adjustment layers
+
+    /// Non-nil while the adjustment editor is open (RootView presents it).
+    struct AdjustmentRequest: Identifiable {
+        /// The layer being edited.
+        let id: UUID
+    }
+
+    @Published var adjustmentRequest: AdjustmentRequest?
+
+    /// Layer ▸ New Adjustment Layer: lands above the selected layer, so it
+    /// corrects everything below it within its group (Photoshop), and opens
+    /// its editor straight away.
+    func addAdjustmentLayer(_ spec: AdjustmentSpec) {
+        commitPendingSessions()
+        guard let source = AdjustmentSpec.placeholderSource() else { return }
+        let layer = Layer(name: spec.displayName, source: source, kind: .adjustment(spec))
+        insertLayerAboveSelection(layer)
+        commit("New \(spec.displayName) Layer", document: document)
+        adjustmentRequest = AdjustmentRequest(id: layer.id)
+    }
+
+    /// Live while a slider moves (`transient`), one history entry when it is
+    /// let go — the same contract the shape and opacity editors follow.
+    func updateAdjustment(_ layerID: UUID, spec: AdjustmentSpec, transient: Bool) {
+        guard var layer = document[layerID: layerID], layer.kind.adjustmentSpec != nil else { return }
+        layer.kind = .adjustment(spec)
+        let updated = document.replacingLayer(layer)
+        if transient {
+            setLiveDocument(updated)
+        } else {
+            commit(spec.displayName, document: updated)
+        }
+    }
+
+    var editableAdjustmentLayerID: UUID? {
+        guard let layer = selectedLayer, layer.kind.adjustmentSpec != nil else { return nil }
+        return layer.id
+    }
+
+    func requestAdjustmentEdit() {
+        guard let id = editableAdjustmentLayerID else { return }
+        commitPendingSessions()
+        adjustmentRequest = AdjustmentRequest(id: id)
+    }
+
     // MARK: - Magic Wand
 
     /// One wand click: find the matching region and combine it into the
@@ -1924,7 +1976,8 @@ final class DocumentStore: ObservableObject {
         if wandSamplesAllLayers {
             image = RenderEngine.shared.compositeImage(for: document)
         } else {
-            guard let layer = selectedLayer, selectedLayerEffectivelyVisible else { return nil }
+            guard let layer = selectedLayer, selectedLayerEffectivelyVisible,
+                  layer.kind.adjustmentSpec == nil else { return nil }
             image = RenderEngine.shared.layerImage(layer, outputTransform: .identity)
         }
         guard let cgImage = RenderEngine.shared.context.createCGImage(
@@ -2227,6 +2280,9 @@ final class DocumentStore: ObservableObject {
         guard selectedLayerEffectivelyVisible else {
             return .blocked("The selected layer is hidden")
         }
+        guard layer.kind.adjustmentSpec == nil else {
+            return .blocked("“\(layer.name)” is an adjustment — it has no pixels to paint on")
+        }
         if maskTargeted, layer.mask != nil {
             return .mask(layer)
         }
@@ -2512,7 +2568,8 @@ final class DocumentStore: ObservableObject {
     /// Same routing as the brush: the targeted mask, a paint layer's pixels,
     /// or an imported layer's existing mask. Imported pixels stay untouchable.
     private func resolveFillTarget() -> FillTarget? {
-        guard let layer = selectedLayer, selectedLayerEffectivelyVisible else { return nil }
+        guard let layer = selectedLayer, selectedLayerEffectivelyVisible,
+              layer.kind.adjustmentSpec == nil else { return nil }
         if maskTargeted, layer.mask != nil { return .mask(layer) }
         if layer.isPaintable { return .pixels(layer) }
         if layer.mask != nil { return .mask(layer) }
@@ -3307,7 +3364,9 @@ final class DocumentStore: ObservableObject {
         switch kind {
         case .text(let spec): image = VectorRasterizer.render(text: spec)
         case .shape(let spec): image = VectorRasterizer.render(shape: spec)
-        case .raster: image = nil
+        // Neither has a rasterisation to refresh: an adjustment has no pixels
+        // at all, and a raster layer's pixels are already the truth.
+        case .raster, .adjustment: image = nil
         }
         guard let image else { return }
         let anchorShift: CGAffineTransform

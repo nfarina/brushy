@@ -112,7 +112,9 @@ final class DocumentSerializer {
                          opacity: layer.opacity, isVisible: layer.isVisible,
                          mask: layer.mask.map { MaskDTO(isEnabled: $0.isEnabled) },
                          isPaintable: layer.isPaintable,
-                         kind: layer.kind.isVector ? layer.kind : nil,
+                         // Adjustments persist too, though they aren't vector:
+                         // their spec IS the layer.
+                         kind: layer.kind == .raster ? nil : layer.kind,
                          blendMode: layer.blendMode == .normal ? nil : layer.blendMode.rawValue,
                          isClipped: layer.isClippedToBelow ? true : nil,
                          groupID: layer.groupID,

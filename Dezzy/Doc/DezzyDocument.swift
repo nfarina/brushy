@@ -125,6 +125,15 @@ final class DezzyDocument: NSDocument {
               let command = DistributeCommand(rawValue: raw) else { return }
         store.distributeSelection(command)
     }
+    @objc func newAdjustmentLayer(_ sender: Any?) {
+        guard let title = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        switch title {
+        case "Levels": store.addAdjustmentLayer(.levels(AdjustmentSpec.Levels()))
+        case "Curves": store.addAdjustmentLayer(.curves(AdjustmentSpec.Curves()))
+        default: store.addAdjustmentLayer(.hueSaturation(AdjustmentSpec.HueSaturation()))
+        }
+    }
+    @objc func editAdjustment(_ sender: Any?) { store.requestAdjustmentEdit() }
     @objc func rasterizeLayer(_ sender: Any?) {
         if let id = store.selectedLayerID { store.rasterizeLayer(id) }
     }
@@ -202,6 +211,7 @@ final class DezzyDocument: NSDocument {
         #selector(duplicateLayer(_:)),
         #selector(duplicateLayerToDocument(_:)), #selector(duplicateLayerToNewDocument(_:)),
         #selector(deleteLayer(_:)), #selector(mergeDown(_:)), #selector(rasterizeLayer(_:)),
+        #selector(newAdjustmentLayer(_:)), #selector(editAdjustment(_:)),
         #selector(groupLayer(_:)), #selector(ungroupLayer(_:)),
         #selector(alignLayers(_:)), #selector(distributeLayers(_:)),
         #selector(flipHorizontal(_:)), #selector(flipVertical(_:)),
@@ -257,16 +267,25 @@ final class DezzyDocument: NSDocument {
                   let index = store.document.layerIndex(of: layer.id), index > 0 else { return false }
             let below = store.document.layers[index - 1]
             // Merge Down never crosses a group boundary — same guard as
-            // `mergeDownSelectedLayer`.
+            // `mergeDownSelectedLayer` — and an adjustment has no pixels to
+            // merge (Photoshop merges it INTO the layer below; not yet here).
             return below.groupID == layer.groupID && layer.isVisible && below.isVisible
+                && layer.kind.adjustmentSpec == nil && below.kind.adjustmentSpec == nil
         case #selector(rasterizeLayer(_:)):
             return store.canRasterizeSelectedLayer
+        case #selector(newAdjustmentLayer(_:)):
+            return true
+        case #selector(editAdjustment(_:)):
+            return store.editableAdjustmentLayerID != nil
         case #selector(showLayerStyle(_:)), #selector(showLayerStyleEffect(_:)):
             return store.selectedLayer != nil
         case #selector(clearLayerStyle(_:)):
             return !(store.selectedLayer?.effects.isEmpty ?? true)
         case #selector(addLayerMask(_:)):
+            // Adjustment masks need a canvas-space mask, which this app's
+            // source-space masks can't be yet — so no masking them for now.
             return store.selectedLayer != nil && store.selectedLayer?.mask == nil
+                && store.selectedLayer?.kind.adjustmentSpec == nil
         case #selector(deleteLayerMask(_:)), #selector(toggleLayerMask(_:)):
             return store.selectedLayer?.mask != nil
         case #selector(toggleClippingMask(_:)):

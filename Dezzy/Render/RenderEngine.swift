@@ -241,6 +241,92 @@ final class RenderEngine {
         return filter.outputImage ?? image
     }
 
+    // MARK: - Adjustment layers
+
+    /// Applies an adjustment to whatever is below it (§3). Photoshop's Levels,
+    /// Curves and Hue/Saturation all work on gamma-encoded values, so the
+    /// composite is encoded, adjusted and decoded again — the same sandwich
+    /// the blend modes use (§7). Levels maps exactly onto stock filters;
+    /// Curves is a five-point `CIToneCurve`, which is why
+    /// `AdjustmentSpec.Curves` evaluates the same spline.
+    static func adjusted(_ image: CIImage, spec: AdjustmentSpec) -> CIImage {
+        let encoded = gammaEncoded(image)
+        let adjusted: CIImage
+        switch spec {
+        case .levels(let levels): adjusted = levelsApplied(encoded, levels)
+        case .curves(let curves): adjusted = curvesApplied(encoded, curves)
+        case .hueSaturation(let spec): adjusted = hueSaturationApplied(encoded, spec)
+        }
+        return gammaDecoded(adjusted)
+    }
+
+    private static func levelsApplied(_ image: CIImage, _ levels: AdjustmentSpec.Levels) -> CIImage {
+        let scale = 1 / max(levels.inputWhite - levels.inputBlack, 1e-6)
+        let bias = -levels.inputBlack * scale
+        var output = image.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: scale, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: scale, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: scale, w: 0),
+            "inputBiasVector": CIVector(x: bias, y: bias, z: bias, w: 0),
+        ])
+        // Clamped before the gamma: pow() of a negative is undefined, and the
+        // white point has to actually clip.
+        output = output.applyingFilter("CIColorClamp", parameters: [
+            "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
+        ])
+        let gamma = min(max(levels.gamma, 0.1), 9.99)
+        if gamma != 1 {
+            output = output.applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / gamma])
+        }
+        let span = levels.outputWhite - levels.outputBlack
+        if span != 1 || levels.outputBlack != 0 {
+            let black = levels.outputBlack
+            output = output.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: span, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: span, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: span, w: 0),
+                "inputBiasVector": CIVector(x: black, y: black, z: black, w: 0),
+            ])
+        }
+        return output
+    }
+
+    private static func curvesApplied(_ image: CIImage, _ curves: AdjustmentSpec.Curves) -> CIImage {
+        let points = curves.points.map { CIVector(x: $0.x, y: $0.y) }
+        guard points.count == 5 else { return image }
+        return image.applyingFilter("CIToneCurve", parameters: [
+            "inputPoint0": points[0], "inputPoint1": points[1], "inputPoint2": points[2],
+            "inputPoint3": points[3], "inputPoint4": points[4],
+        ])
+    }
+
+    private static func hueSaturationApplied(_ image: CIImage,
+                                             _ spec: AdjustmentSpec.HueSaturation) -> CIImage {
+        var output = image
+        if spec.hue != 0 {
+            output = output.applyingFilter("CIHueAdjust",
+                                           parameters: ["inputAngle": spec.hue * .pi / 180])
+        }
+        if spec.saturation != 0 || spec.lightness != 0 {
+            output = output.applyingFilter("CIColorControls", parameters: [
+                "inputSaturation": 1 + spec.saturation / 100,
+                "inputBrightness": spec.lightness / 100,
+            ])
+        }
+        return output
+    }
+
+    /// One adjustment layer over the accumulated composite. Its opacity fades
+    /// the correction back towards the original, as in Photoshop.
+    private func adjustmentComposited(_ layer: Layer, spec: AdjustmentSpec,
+                                      over accumulated: CIImage) -> CIImage {
+        guard spec.isActive else { return accumulated }
+        var top = Self.adjusted(accumulated, spec: spec)
+        if layer.opacity < 1 { top = Self.withOpacity(top, layer.opacity) }
+        return top.composited(over: accumulated)
+    }
+
     // MARK: - Per-layer compositing
 
     /// Shared per-layer graph prep: the source (with any live stroke)
@@ -498,6 +584,14 @@ final class RenderEngine {
                 continue
             }
             guard case .layer(let base) = nodes[index] else { index += 1; continue }
+            // An adjustment layer has no content of its own: it re-renders
+            // what has accumulated below it, within its group's scope.
+            if let spec = base.kind.adjustmentSpec {
+                index += 1
+                guard base.isVisible, base.id != excludingLayer else { continue }
+                accumulated = adjustmentComposited(base, spec: spec, over: accumulated)
+                continue
+            }
             var next = index + 1
             var clipped: [Layer] = []
             while next < nodes.count, case .layer(let member) = nodes[next],

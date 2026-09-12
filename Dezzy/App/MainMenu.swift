@@ -143,6 +143,22 @@ enum MainMenuBuilder {
             action: #selector(DezzyDocument.duplicateLayerToDocument(_:)),
             keyEquivalent: "")
         duplicateTo.submenu = NSMenu(title: "Duplicate Layer to")
+        // Layer ▸ New Adjustment Layer. Like the Layer Style items, each
+        // carries its kind as representedObject so one selector covers all.
+        let adjustments = NSMenu(title: "New Adjustment Layer")
+        for kind in ["Levels", "Curves", "Hue/Saturation"] {
+            let item = adjustments.addItem(withTitle: "\(kind)…",
+                                           action: #selector(DezzyDocument.newAdjustmentLayer(_:)),
+                                           keyEquivalent: "")
+            item.representedObject = kind
+        }
+        let adjustmentItem = layer.addItem(withTitle: "New Adjustment Layer",
+                                           action: #selector(DezzyDocument.newAdjustmentLayer(_:)),
+                                           keyEquivalent: "")
+        adjustmentItem.submenu = adjustments
+        layer.addItem(withTitle: "Edit Adjustment…",
+                      action: #selector(DezzyDocument.editAdjustment(_:)), keyEquivalent: "")
+        layer.addItem(.separator())
         // Photoshop's Layer ▸ Rasterize: the way out of the never-paint rule
         // for photos, text and shapes.
         layer.addItem(withTitle: "Rasterize Layer",

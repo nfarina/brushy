@@ -59,7 +59,8 @@ enum DebugSnapshot {
                                           sheetSettlePasses: dialogSettlePasses)
             }
             if dialogSettlePasses > 0,
-               store.layerStyleRequested != nil || store.colorPickerRequest != nil || isSettingsSnapshot {
+               store.layerStyleRequested != nil || store.colorPickerRequest != nil
+                || store.adjustmentRequest != nil || isSettingsSnapshot {
                 return captureWhenSettled(window: window, store: store, path: path,
                                           attemptsLeft: attemptsLeft,
                                           sheetSettlePasses: dialogSettlePasses - 1)
@@ -94,6 +95,9 @@ enum DebugSnapshot {
         } else if let request = store.layerStyleRequested {
             dialog = (AnyView(LayerStyleSheet(store: store, request: request)),
                       CGSize(width: 660, height: 480))
+        } else if let request = store.adjustmentRequest {
+            dialog = (AnyView(AdjustmentSheet(store: store, layerID: request.id)),
+                      CGSize(width: 430, height: 400))
         } else if let target = store.colorPickerRequest {
             dialog = (AnyView(ColorPickerSheet(store: store, target: target)),
                       CGSize(width: 520, height: 300))
@@ -129,6 +133,10 @@ enum DebugSnapshot {
         case "transform":
             store.selectLayer(store.document.layers.last?.id)
             store.enterTransformMode()
+        case "adjustment":
+            var curves = AdjustmentSpec.Curves()
+            curves.outputs = [0, 0.12, 0.55, 0.88, 1] // a gentle S
+            store.addAdjustmentLayer(.curves(curves))
         case "colorpicker":
             store.foregroundColor = CGColor(srgbRed: 0.15, green: 0.45, blue: 0.85, alpha: 1)
             store.colorPickerRequest = .foreground
