@@ -277,6 +277,35 @@ struct Mask: Equatable {
 
 /// Copy-on-write wrapper around the mask's pixel buffer, so unrelated undo
 /// snapshots share storage.
+extension CGImage {
+    /// True when every pixel is fully transparent. Reads the provider's bytes
+    /// directly — arrivals are rare, so a scan beats keeping a flag in sync —
+    /// and answers false for anything it cannot read confidently, so an
+    /// unusual format is never mistaken for an empty layer.
+    var isFullyTransparent: Bool {
+        guard bitsPerComponent == 8, bitsPerPixel == 32,
+              let data = dataProvider?.data as Data? else { return false }
+        let info = alphaInfo
+        let alphaOffset: Int
+        switch info {
+        case .premultipliedLast, .last: alphaOffset = 3
+        case .premultipliedFirst, .first: alphaOffset = 0
+        default: return false // no alphaationally opaque, or an odd layout
+        }
+        return data.withUnsafeBytes { raw -> Bool in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress,
+                  raw.count >= bytesPerRow * height else { return false }
+            for row in 0..<height {
+                let start = base + row * bytesPerRow
+                for column in 0..<width where start[column * 4 + alphaOffset] != 0 {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+}
+
 struct MaskTexture: Equatable {
     final class Storage {
         let width: Int

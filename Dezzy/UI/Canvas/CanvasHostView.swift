@@ -352,6 +352,33 @@ final class CanvasHostView: NSView {
         }
     }
 
+    // MARK: - Context menu
+
+    /// Right-click with a selection up: Photoshop's selection menu, trimmed to
+    /// what this app has. The items act through the responder chain, so
+    /// `DezzyDocument` validates them exactly as it does in the main menu.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard store.textSession == nil, !store.selection.isEmpty else { return nil }
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Layer via Copy",
+                     action: #selector(DezzyDocument.layerViaCopy(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Layer via Cut",
+                     action: #selector(DezzyDocument.layerViaCut(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Select Inverse",
+                     action: #selector(DezzyDocument.invertSelection(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Deselect",
+                     action: #selector(DezzyDocument.deselect(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Transform Selection",
+                     action: #selector(DezzyDocument.transformSelection(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Fill…",
+                     action: #selector(DezzyDocument.showFill(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Crop to Selection",
+                     action: #selector(DezzyDocument.cropToSelection(_:)), keyEquivalent: "")
+        return menu
+    }
+
     override func keyUp(with event: NSEvent) {
         if event.keyCode == 49 {
             controller.spaceDown = false

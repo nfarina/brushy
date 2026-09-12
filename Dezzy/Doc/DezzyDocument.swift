@@ -93,6 +93,8 @@ final class DezzyDocument: NSDocument {
         store.fillRequested = true
     }
     @objc func duplicateLayer(_ sender: Any?) { store.duplicateSelectedLayer() }
+    @objc func layerViaCopy(_ sender: Any?) { store.layerViaCopy() }
+    @objc func layerViaCut(_ sender: Any?) { store.layerViaCut() }
     // Cross-document transfer: "Duplicate Layer to" submenu items carry the
     // target document as representedObject; the action resolves through the
     // responder chain to the frontmost document.
@@ -212,6 +214,7 @@ final class DezzyDocument: NSDocument {
         #selector(duplicateLayerToDocument(_:)), #selector(duplicateLayerToNewDocument(_:)),
         #selector(deleteLayer(_:)), #selector(mergeDown(_:)), #selector(rasterizeLayer(_:)),
         #selector(newAdjustmentLayer(_:)), #selector(editAdjustment(_:)),
+        #selector(layerViaCopy(_:)), #selector(layerViaCut(_:)),
         #selector(groupLayer(_:)), #selector(ungroupLayer(_:)),
         #selector(alignLayers(_:)), #selector(distributeLayers(_:)),
         #selector(flipHorizontal(_:)), #selector(flipVertical(_:)),
@@ -273,6 +276,11 @@ final class DezzyDocument: NSDocument {
                 && layer.kind.adjustmentSpec == nil && below.kind.adjustmentSpec == nil
         case #selector(rasterizeLayer(_:)):
             return store.canRasterizeSelectedLayer
+        case #selector(layerViaCopy(_:)):
+            // With nothing selected this duplicates the layer, like Photoshop.
+            return store.selectedLayerEffectivelyVisible
+        case #selector(layerViaCut(_:)):
+            return store.canMakeLayerFromSelection
         case #selector(newAdjustmentLayer(_:)):
             return true
         case #selector(editAdjustment(_:)):

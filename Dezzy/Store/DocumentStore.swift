@@ -739,6 +739,15 @@ final class DocumentStore: ObservableObject {
         var doc = document
         stripPristineBlank(from: &doc)
         let adoptedEmptyDocument = doc.layers.isEmpty && !canvasSizeChosenExplicitly
+        // A blank layer made to receive the drop is used rather than left
+        // under it — the same rule paste follows, and on the same terms (see
+        // `insertLayerAboveSelection`). `doc` is local, so a failed import
+        // discards this along with everything else.
+        if doc.layers.count > 1,
+           let selectedIndex = selectedLayerID.flatMap({ doc.layerIndex(of: $0) }),
+           Self.isBlankPaintLayer(doc.layers[selectedIndex]) {
+            doc.layers.remove(at: selectedIndex)
+        }
         var errors: [String] = []
         var lastPlaced: UUID?
         for url in urls {
@@ -1742,52 +1751,85 @@ final class DocumentStore: ObservableObject {
     /// landing. Fresh sourceID: new pixels never reuse the old identity
     /// (invariant 4). Every non-pixel field is carried over explicitly, so a
     /// grouped, clipped or styled layer survives the stamp.
-    private static func stamping(_ float: Layer, into layer: Layer,
-                                 canvasRect: CGRect) -> Layer? {
-        guard layer.transform.isInvertible else { return nil }
+    /// Grows `layer`'s pixel grid so it covers `canvasRegion`, capped at the
+    /// canvas, leaving every existing pixel exactly where it was.
+    ///
+    /// A layer's pixels live on a grid the size of its source image — a chunk
+    /// pasted from somewhere else is only as big as the chunk — so painting,
+    /// filling or dropping pixels past that edge would clip at it. Photoshop
+    /// grows a layer to take them; so does this. The cap matters: nothing
+    /// beyond the canvas is visible, and a grid that only ever grew would
+    /// balloon with every edit.
+    ///
+    /// Returns the layer and the grid's new origin in the OLD source space
+    /// (zero when nothing grew) — callers holding source-space coordinates,
+    /// like a brush stroke, must shift them by it.
+    static func grown(_ layer: Layer, toCover canvasRegion: CGRect,
+                      canvasRect: CGRect) -> (layer: Layer, gridOrigin: CGPoint) {
+        let unchanged = (layer: layer, gridOrigin: CGPoint.zero)
+        guard layer.transform.isInvertible, layer.isPaintable else { return unchanged }
         let toSource = layer.transform.inverted()
-        let floatInSource = float.sourceRect.applying(float.transform.concatenating(toSource))
-        // Pixels can land past the edge of the layer's own grid, so the grid
-        // grows to fit them instead of clipping them there — but no further
-        // than the canvas, since nothing beyond it is visible and a grid that
-        // only ever grew would balloon with every move.
-        let grid = layer.sourceRect
-            .union(floatInSource.intersection(canvasRect.applying(toSource)))
-            .integral
-        guard grid.width >= 1, grid.height >= 1,
+        let wanted = canvasRegion.intersection(canvasRect)
+        guard !wanted.isNull, !wanted.isEmpty else { return unchanged }
+        let grid = layer.sourceRect.union(wanted.applying(toSource)).integral
+        guard grid != layer.sourceRect, grid.width >= 1, grid.height >= 1,
               let ctx = CGContext(data: nil,
                                   width: Int(grid.width), height: Int(grid.height),
                                   bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DezzyColorSpace.displayP3,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            return nil
+            return unchanged
         }
         ctx.translateBy(x: -grid.minX, y: -grid.minY)
         ctx.draw(layer.source, in: layer.sourceRect)
+        guard let image = ctx.makeImage() else { return unchanged }
+        // The grid's origin moved; the transform absorbs the shift so every
+        // existing pixel stays where it was on the canvas.
+        let transform = CGAffineTransform(translationX: grid.minX, y: grid.minY)
+            .concatenating(layer.transform)
+        let grownLayer = Layer(id: layer.id, sourceID: UUID(), name: layer.name,
+                               source: image, transform: transform,
+                               opacity: layer.opacity, isVisible: layer.isVisible,
+                               mask: layer.mask.map { maskShifted($0, from: layer.sourceRect, to: grid) },
+                               isPaintable: true, kind: .raster,
+                               blendMode: layer.blendMode, isClippedToBelow: layer.isClippedToBelow,
+                               groupID: layer.groupID, effects: layer.effects)
+        return (grownLayer, grid.origin)
+    }
+
+    private static func stamping(_ float: Layer, into layer: Layer,
+                                 canvasRect: CGRect) -> Layer? {
+        // Grow first, so pixels landing past the layer's edge are taken rather
+        // than clipped there.
+        let host = grown(layer, toCover: float.canvasBounds, canvasRect: canvasRect).layer
+        guard host.transform.isInvertible,
+              let ctx = CGContext(data: nil,
+                                  width: host.source.width, height: host.source.height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: DezzyColorSpace.displayP3,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        ctx.draw(host.source, in: host.sourceRect)
         ctx.saveGState()
         // float source → canvas → this layer's source grid.
-        ctx.concatenate(float.transform.concatenating(toSource))
+        ctx.concatenate(float.transform.concatenating(host.transform.inverted()))
         ctx.setAlpha(CGFloat(float.opacity))
         ctx.draw(float.source, in: float.sourceRect)
         ctx.restoreGState()
         guard let image = ctx.makeImage() else { return nil }
-        // A grown grid moves the layer's origin; the transform absorbs the
-        // shift so every existing pixel stays exactly where it was.
-        let transform = CGAffineTransform(translationX: grid.minX, y: grid.minY)
-            .concatenating(layer.transform)
-        return Layer(id: layer.id, sourceID: UUID(), name: layer.name,
-                     source: image, transform: transform,
-                     opacity: layer.opacity, isVisible: layer.isVisible,
-                     mask: layer.mask.map { maskRefrained($0, from: layer.sourceRect, to: grid) },
+        return Layer(id: host.id, sourceID: UUID(), name: host.name,
+                     source: image, transform: host.transform,
+                     opacity: host.opacity, isVisible: host.isVisible, mask: host.mask,
                      isPaintable: true, kind: .raster,
-                     blendMode: layer.blendMode, isClippedToBelow: layer.isClippedToBelow,
-                     groupID: layer.groupID, effects: layer.effects)
+                     blendMode: host.blendMode, isClippedToBelow: host.isClippedToBelow,
+                     groupID: host.groupID, effects: host.effects)
     }
 
     /// Re-frames a mask onto a grown pixel grid, revealing (255) the strip
     /// that did not exist before. Mask rows are top-down while the source grid
     /// is y-up, so the row index flips (the classic place to get this wrong).
-    private static func maskRefrained(_ mask: Mask, from oldGrid: CGRect, to grid: CGRect) -> Mask {
+    private static func maskShifted(_ mask: Mask, from oldGrid: CGRect, to grid: CGRect) -> Mask {
         guard grid != oldGrid else { return mask }
         let old = mask.texture
         let width = Int(grid.width), height = Int(grid.height)
@@ -1963,6 +2005,89 @@ final class DocumentStore: ObservableObject {
         adjustmentRequest = AdjustmentRequest(id: id)
     }
 
+    // MARK: - Layer via Copy / Cut, and loading a layer as a selection
+
+    /// Photoshop's ⌘J / ⇧⌘J: the selected pixels become a layer of their own,
+    /// left in place (copy) or taken out of the source (cut). With nothing
+    /// selected, ⌘J duplicates the whole layer, exactly as Photoshop does.
+    func layerViaCopy() { layerFromSelection(cutting: false) }
+    func layerViaCut() { layerFromSelection(cutting: true) }
+
+    var canMakeLayerFromSelection: Bool {
+        selectedLayerEffectivelyVisible && !selection.isEmpty
+    }
+
+    private func layerFromSelection(cutting: Bool) {
+        commitPendingSessions()
+        guard let path = selection.path else {
+            // Photoshop's ⌘J with no selection: duplicate the layer.
+            if !cutting { duplicateSelectedLayer() }
+            return
+        }
+        guard var layer = selectedLayer, selectedLayerEffectivelyVisible,
+              layer.kind.adjustmentSpec == nil else { return }
+        // Copying only READS the pixels, so a smart layer stays smart. Cutting
+        // takes them out of it, which needs its own pixels first.
+        if cutting, Self.needsRasterize(layer) {
+            guard let ready = autoRasterize(layer, because: "to cut the selection out of it") else {
+                return
+            }
+            layer = ready
+        }
+        guard let index = document.layerIndex(of: layer.id) else { return }
+        let rect = path.boundingBoxOfPath.intersection(layer.canvasBounds).integral
+        guard rect.width >= 1, rect.height >= 1 else { return }
+
+        // Baked at full opacity with the layer's opacity carried across, the
+        // same split Copy and the floating selection use.
+        let deep = layer.source.bitsPerComponent > 8
+        let texture = MaskFactory.selectionTexture(rect: rect, selection: path,
+                                                   featherCanvasPx: CGFloat(featherAmount))
+        var bakeLayer = layer
+        bakeLayer.opacity = 1
+        guard let baked = RenderEngine.shared.renderLayerRegion(bakeLayer, croppedTo: rect,
+                                                                selection: texture,
+                                                                sixteenBit: deep) else { return }
+        var lifted = Layer(name: cutting ? "Layer via Cut" : "Layer via Copy", source: baked,
+                           transform: CGAffineTransform(translationX: rect.minX, y: rect.minY),
+                           opacity: layer.opacity, isPaintable: true, blendMode: layer.blendMode)
+        lifted.groupID = layer.groupID
+
+        var doc = document
+        if cutting {
+            guard let holed = Self.pixelsFilled(layer, path: path, color: nil) else { return }
+            doc = doc.replacingLayer(holed)
+        }
+        doc.layers.insert(lifted, at: index + 1)
+        selectedLayerID = lifted.id
+        maskTargeted = false
+        // The pixels are a layer now, so the selection has done its job —
+        // Photoshop drops it too.
+        commit(cutting ? "Layer via Cut" : "Layer via Copy", document: doc, selection: .empty)
+    }
+
+    /// ⌘-click a layer's thumbnail: select its pixels (Photoshop's "load as
+    /// selection"). Selections here are paths rather than 8-bit masks, so the
+    /// layer's alpha is thresholded at 50% and traced — a soft edge comes back
+    /// hard, which is the one thing this cannot reproduce.
+    func selectPixels(of layerID: UUID) {
+        commitPendingSessions()
+        guard let layer = document[layerID: layerID], layer.kind.adjustmentSpec == nil,
+              let pixels = pixelBuffer(RenderEngine.shared.layerImage(layer,
+                                                                      outputTransform: .identity))
+        else { return }
+        var covered = [Bool](repeating: false, count: pixels.width * pixels.height)
+        for index in covered.indices where pixels.data[index * 4 + 3] >= 128 {
+            covered[index] = true
+        }
+        let path = MagicWand.path(from: covered, width: pixels.width, height: pixels.height)
+        guard !path.isEmpty else {
+            brushHint = "“\(layer.name)” has no pixels inside the canvas to select"
+            return
+        }
+        combineSelection(path, mode: .replace)
+    }
+
     // MARK: - Magic Wand
 
     /// One wand click: find the matching region and combine it into the
@@ -1990,8 +2115,6 @@ final class DocumentStore: ObservableObject {
     /// The canvas as RGBA8 for the wand to search: the selected layer alone,
     /// or the whole composite with Sample All Layers on (Photoshop's option).
     private func wandPixels() -> MagicWand.Pixels? {
-        let rect = document.canvasRect.integral
-        guard rect.width >= 1, rect.height >= 1 else { return nil }
         let image: CIImage
         if wandSamplesAllLayers {
             image = RenderEngine.shared.compositeImage(for: document)
@@ -2000,6 +2123,14 @@ final class DocumentStore: ObservableObject {
                   layer.kind.adjustmentSpec == nil else { return nil }
             image = RenderEngine.shared.layerImage(layer, outputTransform: .identity)
         }
+        return pixelBuffer(image)
+    }
+
+    /// `image` rasterized over the canvas rect as RGBA8, row 0 at top — what
+    /// the wand searches and what "load as selection" thresholds.
+    private func pixelBuffer(_ image: CIImage) -> MagicWand.Pixels? {
+        let rect = document.canvasRect.integral
+        guard rect.width >= 1, rect.height >= 1 else { return nil }
         guard let cgImage = RenderEngine.shared.context.createCGImage(
             image, from: rect, format: .RGBA8, colorSpace: DezzyColorSpace.sRGB) else { return nil }
         let width = cgImage.width, height = cgImage.height
@@ -2328,10 +2459,22 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// The layer a stroke will paint into, with its pixel grid grown to the
+    /// canvas first. The stroke's coverage buffer is sized from this grid, so
+    /// the growth has to happen before the stroke starts — otherwise a layer
+    /// the size of a pasted chunk is a window you cannot paint outside of.
+    /// Growth rides along in the stroke's own history entry.
+    private func paintable(_ layer: Layer) -> Layer {
+        let grown = Self.grown(layer, toCover: document.canvasRect,
+                               canvasRect: document.canvasRect).layer
+        guard grown.sourceID != layer.sourceID else { return layer }
+        setLiveDocument(document.replacingLayer(grown))
+        return grown
+    }
+
     func beginBrushStroke(at canvasPoint: CGPoint, eraser: Bool) {
         commitPendingSessions()
         brushHint = nil
-        var doc = document
         let layer: Layer
         let targetsMask: Bool
         switch resolveStrokeTarget(eraser: eraser) {
@@ -2342,15 +2485,14 @@ final class DocumentStore: ObservableObject {
             // The stroke lands on this very click: rasterize, say so, paint.
             guard let ready = autoRasterize(target, because: eraser ? "to erase it"
                                                                    : "to paint on it") else { return }
-            doc = document
-            layer = ready
+            layer = paintable(ready)
             targetsMask = false
         case .mask(let target):
             layer = target
             targetsMask = true
             maskTargeted = true
         case .paint(let target):
-            layer = target
+            layer = paintable(target)
             targetsMask = false
         }
         guard layer.transform.isInvertible else { return }
@@ -2402,11 +2544,17 @@ final class DocumentStore: ObservableObject {
             layer.mask?.texture = RenderEngine.shared.bakeMaskStroke(into: mask.texture,
                                                                      stroke: preview)
         case .paintLayer:
+            // The grid was grown to the canvas when the stroke began
+            // (`paintable`), so the coverage buffer already spans everywhere
+            // this stroke could reach.
             guard let baked = RenderEngine.shared.bakePaintStroke(into: layer.source,
                                                                   stroke: preview) else { return }
             layer = Layer(id: layer.id, sourceID: UUID(), name: layer.name, source: baked,
                           transform: layer.transform, opacity: layer.opacity,
-                          isVisible: layer.isVisible, mask: layer.mask, isPaintable: true)
+                          isVisible: layer.isVisible, mask: layer.mask, isPaintable: true,
+                          kind: .raster, blendMode: layer.blendMode,
+                          isClippedToBelow: layer.isClippedToBelow, groupID: layer.groupID,
+                          effects: layer.effects)
         }
         commit(stroke.isEraser ? "Eraser Stroke" : "Brush Stroke",
                document: document.replacingLayer(layer))
@@ -2622,7 +2770,10 @@ final class DocumentStore: ObservableObject {
             updated = Self.maskFilled(layer, path: path,
                                       gray: CGFloat(Self.luminance255(of: color)) / 255)
         case .pixels(let layer):
-            updated = Self.pixelsFilled(layer, path: path, color: color)
+            // Fill what was asked for, even where the layer has no pixels yet.
+            let host = Self.grown(layer, toCover: path.boundingBoxOfPath,
+                                  canvasRect: document.canvasRect).layer
+            updated = Self.pixelsFilled(host, path: path, color: color)
         }
         guard let updated else { return }
         commit("Fill Selection", document: document.replacingLayer(updated))
@@ -2742,6 +2893,11 @@ final class DocumentStore: ObservableObject {
                                           endGray: Self.luminance255(of: backgroundColor),
                                           selectionPath: selection.path)
         case .pixels(let layer):
+            // A gradient covers the selection, or the whole layer when there
+            // is none — which for a small layer means growing it first.
+            let region = selection.path?.boundingBoxOfPath ?? document.canvasRect
+            let layer = Self.grown(layer, toCover: region,
+                                   canvasRect: document.canvasRect).layer
             updated = Self.pixelsGradiented(layer, line: line, shape: gradientShape,
                                             reversed: gradientReversed,
                                             toTransparent: gradientToTransparent,
@@ -3105,7 +3261,7 @@ final class DocumentStore: ObservableObject {
                               isEnabled: true)
         }
         setLiveDocument(doc)
-        insertLayerAboveSelection(layer)
+        insertLayerAboveSelection(layer, consumingBlankTarget: true)
         commit(into ? "Paste Into" : "Paste", document: document, selection: .empty)
         if adopted {
             zoomToFit()
@@ -3188,7 +3344,7 @@ final class DocumentStore: ObservableObject {
             incoming.mask = mask
         }
         setLiveDocument(doc)
-        insertLayerAboveSelection(incoming)
+        insertLayerAboveSelection(incoming, consumingBlankTarget: true)
         commit("Duplicate Layer", document: document)
         if adopted { zoomToFit() }
         armTransformForArrivedLayer(incoming.id, adoptedCanvas: adopted)
@@ -3428,7 +3584,25 @@ final class DocumentStore: ObservableObject {
         updateVectorLayer(layer.id, kind: .shape(spec), actionName: "Edit Shape")
     }
 
-    private func insertLayerAboveSelection(_ layer: Layer) {
+    /// A transparent, unstyled paint layer: scaffolding with nothing on it to
+    /// lose. Arriving content takes its place rather than stacking on top of
+    /// it — "I made a layer to paste into" should mean exactly that.
+    static func isBlankPaintLayer(_ layer: Layer) -> Bool {
+        guard layer.isPaintable, layer.kind == .raster, layer.mask == nil,
+              layer.effects.isEmpty, !layer.isClippedToBelow,
+              layer.opacity == 1, layer.blendMode == .normal else { return false }
+        return layer.source.isFullyTransparent
+    }
+
+    /// `consumingBlankTarget` — for content ARRIVING from outside (paste,
+    /// place, a layer from another document): an empty layer the user made to
+    /// receive it is used rather than stacked under. New text, shapes and
+    /// adjustments never consume one; they are their own content.
+    ///
+    /// A document's only layer is never consumed either: a fresh ⌘N window is
+    /// one empty layer, and Photoshop keeps its Background there too.
+    private func insertLayerAboveSelection(_ layer: Layer,
+                                           consumingBlankTarget: Bool = false) {
         var doc = document
         var incoming = layer
         let index: Int
@@ -3439,6 +3613,16 @@ final class DocumentStore: ObservableObject {
             // contiguous — Photoshop's paste-into-a-group behaviour. No
             // membership travels from the source; the landing spot decides.
             incoming.groupID = doc.layers[selectedIndex].groupID
+            if consumingBlankTarget, doc.layers.count > 1,
+               Self.isBlankPaintLayer(doc.layers[selectedIndex]) {
+                doc.layers.remove(at: selectedIndex)
+                doc.layers.insert(incoming, at: selectedIndex)
+                selectedLayerID = incoming.id
+                selectedGroupID = nil
+                maskTargeted = false
+                setLiveDocument(doc)
+                return
+            }
         } else {
             index = doc.layers.count
             incoming.groupID = nil

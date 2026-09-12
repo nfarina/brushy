@@ -312,6 +312,12 @@ struct LayersPanel: View {
             // all ended up unreachable without a mouse. `.plain` keeps the
             // appearance identical to the gesture version.
             Button {
+                // ⌘-click loads the layer's pixels as a selection (Photoshop)
+                // and leaves the current target alone.
+                if NSEvent.modifierFlags.contains(.command) {
+                    store.selectPixels(of: layer.id)
+                    return
+                }
                 store.selectLayer(layer.id)
                 if NSEvent.modifierFlags.contains(.option) {
                     store.toggleClippingMask(layer.id)
@@ -356,7 +362,8 @@ struct LayersPanel: View {
             })
             .accessibilityLabel("Layer thumbnail, \(layer.name)")
             .accessibilityValue(isSelected && !store.maskTargeted ? "Targeted" : "Not targeted")
-            .accessibilityHint("Targets the layer's pixels. Option-click clips it to the layer below. "
+            .accessibilityHint("Targets the layer's pixels. Command-click selects them. "
+                               + "Option-click clips it to the layer below. "
                                + "Double-click rasterizes a smart layer.")
             .help("Click to target layer · ⌥-click to clip to the layer below")
 

@@ -132,8 +132,16 @@ enum MainMenuBuilder {
                                      keyEquivalent: "N")
         newPaint.keyEquivalentModifierMask = [.command, .shift]
         layer.addItem(.separator())
+        // Photoshop's ⌘J / ⇧⌘J. ⌘J with nothing selected duplicates the
+        // layer, which is what Photoshop does and what the old binding did.
+        layer.addItem(withTitle: "Layer via Copy",
+                      action: #selector(DezzyDocument.layerViaCopy(_:)), keyEquivalent: "j")
+        let viaCut = layer.addItem(withTitle: "Layer via Cut",
+                                   action: #selector(DezzyDocument.layerViaCut(_:)),
+                                   keyEquivalent: "J")
+        viaCut.keyEquivalentModifierMask = [.command, .shift]
         layer.addItem(withTitle: "Duplicate Layer",
-                      action: #selector(DezzyDocument.duplicateLayer(_:)), keyEquivalent: "j")
+                      action: #selector(DezzyDocument.duplicateLayer(_:)), keyEquivalent: "")
         // Dynamic submenu: populated by the frontmost document, which adopts
         // it as NSMenuDelegate during validation (the open-documents list
         // changes as tabs open and close). The parent's action exists so the
