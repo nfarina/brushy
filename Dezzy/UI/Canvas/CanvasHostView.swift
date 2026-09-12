@@ -304,7 +304,13 @@ final class CanvasHostView: NSView {
             controller.handleReturn()
             return
         case 51, 117: // delete / forward delete
-            store.deleteSelectedLayer()
+            // With a selection up ⌫ clears the selected pixels, as in
+            // Photoshop; with none it still deletes the layer.
+            if store.selection.isEmpty {
+                store.deleteSelectedLayer()
+            } else {
+                store.clearSelection()
+            }
             return
         case 123: controller.nudge(dx: -1, dy: 0, big: event.modifierFlags.contains(.shift)); return
         case 124: controller.nudge(dx: 1, dy: 0, big: event.modifierFlags.contains(.shift)); return

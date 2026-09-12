@@ -58,6 +58,10 @@ final class CanvasController {
     }
 
     private var drag: Drag?
+    /// True when the current drag is what lifted the floating selection, so
+    /// mouse-up can tell a fruitless first press (unwind it) from a click on
+    /// pixels that were already floating (leave them be).
+    private var floatLiftedThisDrag = false
 
     init(store: DocumentStore) {
         self.store = store
@@ -140,13 +144,16 @@ final class CanvasController {
             // wherever on the canvas the drag starts (Photoshop). ⌥ duplicates
             // them instead of cutting them out. Falls through to moving the
             // whole layer when there is nothing liftable under the selection.
-            if !store.selection.isEmpty,
-               let float = store.beginSelectionFloat(cutting: !optionDown) {
-                drag = .moveLayer(layerID: float.floatLayerID, startCanvas: canvasPoint,
-                                  initial: float.initialTransform, viaSession: false,
-                                  moved: false, duplicated: false, shiftAtDown: false,
-                                  startView: viewPoint)
-                return
+            if !store.selection.isEmpty {
+                let wasFloating = store.selectionFloat != nil
+                if let float = store.beginSelectionFloat(cutting: !optionDown) {
+                    floatLiftedThisDrag = !wasFloating
+                    drag = .moveLayer(layerID: float.floatLayerID, startCanvas: canvasPoint,
+                                      initial: store.selectionFloatTransform ?? float.initialTransform,
+                                      viaSession: false, moved: false, duplicated: false,
+                                      shiftAtDown: false, startView: viewPoint)
+                    return
+                }
             }
             // move tool: click-to-select and ⌥-drag duplicate. The ⌥ state
             // latches at mouse-down (modifiers are re-read live mid-drag, and
@@ -315,14 +322,13 @@ final class CanvasController {
                         let duplicated, let shiftAtDown, let startView):
             store.activeGuides = []
             let screenDistance = (viewPoint - startView).length
-            // A floating selection: land it, or unwind the lift if the drag
-            // never actually moved (a click must leave no history).
+            // The pixels keep floating after the mouse comes up (Photoshop):
+            // the next drag moves the same ones instead of cutting a new hole.
+            // Only a press that lifted them *and* never moved unwinds, so a
+            // stray click leaves no history and no stray layer.
             if store.selectionFloat != nil {
-                if moved {
-                    store.commitSelectionFloat()
-                } else {
-                    store.cancelSelectionFloat()
-                }
+                if !moved && floatLiftedThisDrag { store.cancelSelectionFloat() }
+                floatLiftedThisDrag = false
                 return
             }
             if duplicated {
@@ -741,6 +747,8 @@ final class CanvasController {
             store.cancelTransformSession()
         } else if store.selectionTransformSession != nil {
             store.cancelSelectionTransformSession()
+        } else if store.selectionFloat != nil {
+            store.cancelSelectionFloat()
         } else if store.activeTool == .crop {
             store.resetCropSession()
         }

@@ -66,7 +66,7 @@ final class SelectionFloatTests: XCTestCase {
         let float = try XCTUnwrap(store.beginSelectionFloat())
         XCTAssertEqual(store.document.layers.count, 2, "the float rides above its layer mid-drag")
         moveFloat(store, float, dx: 60)
-        store.commitSelectionFloat()
+        store.landSelectionFloat()
         um.endUndoGrouping()
 
         XCTAssertEqual(store.document.layers.count, 1, "the float stamped back into the paint layer")
@@ -92,7 +92,7 @@ final class SelectionFloatTests: XCTestCase {
         um.beginUndoGrouping()
         let float = try XCTUnwrap(store.beginSelectionFloat())
         moveFloat(store, float, dx: 60)
-        store.commitSelectionFloat()
+        store.landSelectionFloat()
         um.endUndoGrouping()
 
         XCTAssertEqual(store.document.layers.count, 2, "the moved pixels stay a layer of their own")
@@ -117,7 +117,7 @@ final class SelectionFloatTests: XCTestCase {
         um.beginUndoGrouping()
         let float = try XCTUnwrap(store.beginSelectionFloat(cutting: false))
         moveFloat(store, float, dx: 60)
-        store.commitSelectionFloat()
+        store.landSelectionFloat()
         um.endUndoGrouping()
 
         XCTAssertEqual(um.undoActionName, "Duplicate Selection")
@@ -157,25 +157,99 @@ final class SelectionFloatTests: XCTestCase {
     }
 
     /// The whole gesture through the real controller, as the mouse drives it.
-    func testMoveToolDragMovesTheSelectedPixels() throws {
+    /// Releasing the mouse leaves the pixels floating; they land when the
+    /// selection's life ends.
+    func testMoveToolDragFloatsThePixelsUntilTheSelectionEnds() throws {
         let (store, um) = makeStore(paintable: true)
         selectSquare(store)
         store.activeTool = .move
         let controller = CanvasController(store: store)
 
         um.beginUndoGrouping()
-        controller.mouseDown(at: store.viewport.toView(CGPoint(x: 50, y: 50)),
-                             modifiers: [], clickCount: 1)
-        controller.mouseDragged(to: store.viewport.toView(CGPoint(x: 90, y: 50)), modifiers: [])
-        controller.mouseUp(at: store.viewport.toView(CGPoint(x: 90, y: 50)),
-                           modifiers: [], clickCount: 1)
+        drag(controller, store, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 90, y: 50))
         um.endUndoGrouping()
 
-        XCTAssertEqual(um.undoActionName, "Move Selection")
-        XCTAssertEqual(store.document.layers.count, 1)
-        XCTAssertEqual(store.selection.path?.boundingBoxOfPath.minX, 70)
+        XCTAssertNotNil(store.selectionFloat, "the pixels keep floating after mouse-up")
+        XCTAssertEqual(store.document.layers.count, 2)
+        XCTAssertEqual(store.liveSelectionPath?.boundingBoxOfPath.minX, 70,
+                       "the ants ride with the pixels while they float")
+        XCTAssertEqual(store.selection.path?.boundingBoxOfPath.minX, 30,
+                       "the committed selection hasn't moved yet")
+
+        um.beginUndoGrouping()
+        store.deselect()
+        um.endUndoGrouping()
+        XCTAssertNil(store.selectionFloat)
+        XCTAssertEqual(store.document.layers.count, 1, "landing stamped the float back down")
         XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).a, 0)
         XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 90, y: 50)).a, 250)
+    }
+
+    /// The point of floating: a second drag pushes the SAME pixels along
+    /// instead of cutting a fresh hole out of where they just landed.
+    func testASecondDragMovesTheSamePixelsWithoutCuttingAgain() {
+        let (store, um) = makeStore(paintable: true)
+        selectSquare(store)
+        store.activeTool = .move
+        let controller = CanvasController(store: store)
+        let entriesBefore = store.historyEntries.count
+
+        um.beginUndoGrouping()
+        drag(controller, store, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 90, y: 50))
+        drag(controller, store, from: CGPoint(x: 90, y: 50), to: CGPoint(x: 120, y: 50))
+        um.endUndoGrouping()
+        XCTAssertEqual(store.document.layers.count, 2, "still one float, not two")
+
+        um.beginUndoGrouping()
+        store.deselect()
+        um.endUndoGrouping()
+
+        XCTAssertEqual(store.historyEntries.count, entriesBefore + 2,
+                       "both drags land as a single Move Selection, then Deselect")
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).a, 0, "one hole, where they started")
+        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 90, y: 50)).a, 250,
+                             "the pixels they travelled over are undisturbed")
+        // Had the second drag re-lifted, it would have cut from the committed
+        // selection — still the empty hole — and landed nothing here.
+        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 120, y: 50)).a, 250,
+                             "the same pixels arrived at the far end")
+    }
+
+    func testArrowKeysNudgeTheSelectedPixels() {
+        let (store, _) = makeStore(paintable: true)
+        selectSquare(store)
+        store.activeTool = .move
+
+        store.nudgeSelectedLayer(dx: 3, dy: 0)
+        store.nudgeSelectedLayer(dx: 3, dy: 0)
+        XCTAssertNotNil(store.selectionFloat, "nudging lifts the pixels and keeps them floating")
+        XCTAssertEqual(store.liveSelectionPath?.boundingBoxOfPath.minX, 36)
+
+        store.deselect()
+        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 56, y: 50)).a, 250)
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 32, y: 50)).a, 0)
+    }
+
+    func testDeleteClearsTheSelectedPixelsRatherThanTheLayer() {
+        let (store, um) = makeStore(paintable: true)
+        selectSquare(store)
+
+        um.beginUndoGrouping()
+        store.clearSelection()
+        um.endUndoGrouping()
+
+        XCTAssertEqual(um.undoActionName, "Clear")
+        XCTAssertEqual(store.document.layers.count, 1, "the layer survives")
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).a, 0)
+        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 25, y: 25)).a, 250,
+                             "only the selected pixels went")
+    }
+
+    private func drag(_ controller: CanvasController, _ store: DocumentStore,
+                      from: CGPoint, to: CGPoint) {
+        controller.mouseDown(at: store.viewport.toView(from), modifiers: [], clickCount: 1)
+        controller.mouseDragged(to: store.viewport.toView(to), modifiers: [])
+        controller.mouseUp(at: store.viewport.toView(to), modifiers: [], clickCount: 1)
     }
 
     /// A click with the Move tool while a selection is up must not leave a

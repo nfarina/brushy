@@ -58,7 +58,7 @@ final class CanvasOverlayView: NSView {
             // transformed outline; the committed selection is hidden until
             // commit/cancel resolves it.
             drawAnts(session.currentPath, viewport: viewport)
-        } else if let path = store.selection.path {
+        } else if let path = store.liveSelectionPath {
             drawAnts(path, viewport: viewport)
         }
         if let preview = store.previewSelectionPath {

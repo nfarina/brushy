@@ -1276,6 +1276,15 @@ final class DocumentStore: ObservableObject {
             selectionTransformSession = session
             return
         }
+        // Arrow keys nudge the SELECTED PIXELS when a selection is up
+        // (Photoshop), lifting them on the first press and pushing the same
+        // float afterwards.
+        if activeTool == .move, !selection.isEmpty,
+           let float = beginSelectionFloat(), let current = selectionFloatTransform {
+            setLiveLayerTransform(float.floatLayerID,
+                                  current.concatenating(CGAffineTransform(translationX: dx, y: dy)))
+            return
+        }
         guard activeTool == .move, let layer = selectedLayer else { return }
         let moved = TransformMath.moved(initial: layer.transform, delta: CGPoint(x: dx, y: dy))
         var doc = document
@@ -1392,8 +1401,10 @@ final class DocumentStore: ObservableObject {
         // A floating selection lands as one entry; an untouched box unwinds
         // the lift instead, so ⌘T then Return changes nothing.
         if selectionFloat != nil {
+            // ⌘T's Return lands the pixels, unlike a move drag, which leaves
+            // them floating.
             if session.hasChanges {
-                commitSelectionFloat(actionName: "Free Transform")
+                landSelectionFloat(actionName: "Free Transform")
             } else {
                 cancelSelectionFloat()
             }
@@ -1440,6 +1451,7 @@ final class DocumentStore: ObservableObject {
         commitAnyTransformSession()
         commitAnySelectionTransformSession()
         commitAnyTextSession()
+        landSelectionFloat()
     }
 
     // MARK: - Floating selection (Move / Free Transform on a selection)
@@ -1476,8 +1488,11 @@ final class DocumentStore: ObservableObject {
     /// pixels rather than moving them.
     @discardableResult
     func beginSelectionFloat(cutting: Bool = true) -> SelectionFloat? {
+        // Pixels already floating keep floating: dragging again moves the same
+        // pixels rather than cutting a fresh hole out of what just landed.
+        if let existing = selectionFloat { return existing }
         commitPendingSessions()
-        guard selectionFloat == nil, let path = selection.path,
+        guard let path = selection.path,
               let layer = selectedLayer, selectedLayerEffectivelyVisible,
               let index = document.layerIndex(of: layer.id) else { return nil }
         let rect = path.boundingBoxOfPath.intersection(layer.canvasBounds).integral
@@ -1540,23 +1555,52 @@ final class DocumentStore: ObservableObject {
         return float
     }
 
-    /// Lands a floating selection as exactly ONE history entry. The selection
-    /// travels with the pixels, as in Photoshop.
-    func commitSelectionFloat(actionName: String? = nil) {
+    /// Lands a live float as exactly ONE history entry, the selection
+    /// travelling with the pixels (Photoshop).
+    ///
+    /// The float stays alive across drags — releasing the mouse does not land
+    /// it — so repeated moves and nudges push the same pixels around instead
+    /// of re-cutting whatever they were dropped onto. It lands when its life
+    /// ends: a new selection or deselect (hooked in `commit`), switching
+    /// layers or tools, ⌘T's Return, saving, or any other document operation
+    /// (`commitPendingSessions`).
+    func landSelectionFloat(actionName: String? = nil) {
         guard let float = selectionFloat else { return }
         selectionFloat = nil
         guard let floatLayer = document[layerID: float.floatLayerID] else { return }
         // Canvas-space motion of the float: undo its lift position, apply
         // where it ended up.
         let moved = float.initialTransform.inverted().concatenating(floatLayer.transform)
+        guard moved != .identity else {
+            // Lifted but never moved: unwind rather than record a no-op.
+            selectedLayerID = float.sourceLayerID
+            setLiveDocument(float.baseDocument)
+            return
+        }
         var doc = document
         if float.stampsBack, let target = doc[layerID: float.sourceLayerID],
-           let stamped = Self.stamping(floatLayer, into: target) {
+           let stamped = Self.stamping(floatLayer, into: target,
+                                       canvasRect: document.canvasRect) {
             doc = doc.removingLayer(id: float.floatLayerID).replacingLayer(stamped)
             selectedLayerID = float.sourceLayerID
         }
         commit(actionName ?? float.actionName, document: doc,
                selection: float.baseSelection.transformed(by: moved))
+    }
+
+    /// The float layer's transform right now — the anchor a fresh drag or
+    /// nudge starts from.
+    var selectionFloatTransform: CGAffineTransform? {
+        selectionFloat.flatMap { document[layerID: $0.floatLayerID]?.transform }
+    }
+
+    /// The selection outline to draw: while pixels float, the marching ants
+    /// ride with them even though the committed selection hasn't moved yet.
+    var liveSelectionPath: CGPath? {
+        guard let float = selectionFloat, let path = float.baseSelection.path,
+              let current = selectionFloatTransform else { return selection.path }
+        var moved = float.initialTransform.inverted().concatenating(current)
+        return path.copy(using: &moved) ?? path
     }
 
     /// Drops a float and restores the document from before the lift: Esc, and
@@ -1572,29 +1616,77 @@ final class DocumentStore: ObservableObject {
     /// landing. Fresh sourceID: new pixels never reuse the old identity
     /// (invariant 4). Every non-pixel field is carried over explicitly, so a
     /// grouped, clipped or styled layer survives the stamp.
-    private static func stamping(_ float: Layer, into layer: Layer) -> Layer? {
-        guard layer.transform.isInvertible,
+    private static func stamping(_ float: Layer, into layer: Layer,
+                                 canvasRect: CGRect) -> Layer? {
+        guard layer.transform.isInvertible else { return nil }
+        let toSource = layer.transform.inverted()
+        let floatInSource = float.sourceRect.applying(float.transform.concatenating(toSource))
+        // Pixels can land past the edge of the layer's own grid, so the grid
+        // grows to fit them instead of clipping them there — but no further
+        // than the canvas, since nothing beyond it is visible and a grid that
+        // only ever grew would balloon with every move.
+        let grid = layer.sourceRect
+            .union(floatInSource.intersection(canvasRect.applying(toSource)))
+            .integral
+        guard grid.width >= 1, grid.height >= 1,
               let ctx = CGContext(data: nil,
-                                  width: layer.source.width, height: layer.source.height,
+                                  width: Int(grid.width), height: Int(grid.height),
                                   bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DezzyColorSpace.displayP3,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
             return nil
         }
+        ctx.translateBy(x: -grid.minX, y: -grid.minY)
         ctx.draw(layer.source, in: layer.sourceRect)
         ctx.saveGState()
         // float source → canvas → this layer's source grid.
-        ctx.concatenate(float.transform.concatenating(layer.transform.inverted()))
+        ctx.concatenate(float.transform.concatenating(toSource))
         ctx.setAlpha(CGFloat(float.opacity))
         ctx.draw(float.source, in: float.sourceRect)
         ctx.restoreGState()
         guard let image = ctx.makeImage() else { return nil }
+        // A grown grid moves the layer's origin; the transform absorbs the
+        // shift so every existing pixel stays exactly where it was.
+        let transform = CGAffineTransform(translationX: grid.minX, y: grid.minY)
+            .concatenating(layer.transform)
         return Layer(id: layer.id, sourceID: UUID(), name: layer.name,
-                     source: image, transform: layer.transform,
+                     source: image, transform: transform,
                      opacity: layer.opacity, isVisible: layer.isVisible,
-                     mask: layer.mask, isPaintable: true, kind: .raster,
+                     mask: layer.mask.map { maskRefrained($0, from: layer.sourceRect, to: grid) },
+                     isPaintable: true, kind: .raster,
                      blendMode: layer.blendMode, isClippedToBelow: layer.isClippedToBelow,
                      groupID: layer.groupID, effects: layer.effects)
+    }
+
+    /// Re-frames a mask onto a grown pixel grid, revealing (255) the strip
+    /// that did not exist before. Mask rows are top-down while the source grid
+    /// is y-up, so the row index flips (the classic place to get this wrong).
+    private static func maskRefrained(_ mask: Mask, from oldGrid: CGRect, to grid: CGRect) -> Mask {
+        guard grid != oldGrid else { return mask }
+        let old = mask.texture
+        let width = Int(grid.width), height = Int(grid.height)
+        let dx = Int(oldGrid.minX - grid.minX), dy = Int(oldGrid.minY - grid.minY)
+        guard dx >= 0, dy >= 0, dx + old.width <= width, dy + old.height <= height else {
+            return mask
+        }
+        var texture = MaskTexture(width: width, height: height, fill: 255)
+        texture.mutate { data in
+            data.withUnsafeMutableBytes { buffer in
+                guard let base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                old.data.withUnsafeBytes { source in
+                    guard let from = source.bindMemory(to: UInt8.self).baseAddress else { return }
+                    for row in 0..<old.height {
+                        // Row → y-up in the old grid → y-up in the new → row.
+                        let newRow = height - 1 - (old.height - 1 - row + dy)
+                        (base + newRow * width + dx).update(from: from + row * old.width,
+                                                            count: old.width)
+                    }
+                }
+            }
+        }
+        var grown = mask
+        grown.texture = texture
+        return grown
     }
 
     // MARK: - Crop tool
@@ -1659,6 +1751,9 @@ final class DocumentStore: ObservableObject {
     // MARK: - Selection (Stage A)
 
     func combineSelection(_ path: CGPath, mode: SelectionState.CombineMode) {
+        // A new selection ends a float's life: it lands first, as its own
+        // history entry (Photoshop).
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         previewSelectionPath = nil
         let newSelection = selection.combining(path, mode: mode)
@@ -1673,6 +1768,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func deselect() {
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         previewSelectionPath = nil
         guard !selection.isEmpty else { return }
@@ -1680,6 +1776,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func invertSelection() {
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
         commit("Inverse", document: document,
@@ -1687,6 +1784,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func selectAll() {
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         let path = CGPath(rect: document.canvasRect, transform: nil)
         commit("Select All", document: document,
@@ -1702,6 +1800,7 @@ final class DocumentStore: ObservableObject {
     // feather field's 1...250 px range.
 
     func growSelection(by radius: CGFloat) {
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
         commit("Grow Selection", document: document, selection: selection.grown(by: radius))
@@ -1710,12 +1809,14 @@ final class DocumentStore: ObservableObject {
     /// Contracting past the shape's half-width legitimately commits `.empty` —
     /// the user asked for it, so it *is* a history entry.
     func contractSelection(by radius: CGFloat) {
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
         commit("Contract Selection", document: document, selection: selection.contracted(by: radius))
     }
 
     func borderSelection(width: CGFloat) {
+        landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
         commit("Border Selection", document: document, selection: selection.bordered(width: width))
@@ -1862,6 +1963,12 @@ final class DocumentStore: ObservableObject {
                     cancelSelectionTransformSession()
                 }
             }
+            return true
+        }
+        // Floating pixels: ⌘Z drops the float back where it came from, the
+        // same "the gesture first, then history" rule the sessions above use.
+        if selectionFloat != nil {
+            if !redo { cancelSelectionFloat() }
             return true
         }
         if activeTool == .crop, let session = cropSession,
@@ -2611,6 +2718,33 @@ final class DocumentStore: ObservableObject {
         }
         guard let updated else { return }
         commit("Cut", document: document.replacingLayer(updated))
+    }
+
+    /// ⌫ with a selection up clears the selected pixels (Photoshop) instead of
+    /// deleting the layer. Routing mirrors Cut exactly: paint pixels go
+    /// transparent, a photo gets a hide-mask rather than losing bytes.
+    func clearSelection() {
+        commitPendingSessions()
+        guard selectedLayerEffectivelyVisible, let path = selection.path else { return }
+        let updated: Layer?
+        switch resolveStrokeTarget(eraser: true) {
+        case .blocked:
+            return
+        case .mask(let target):
+            updated = Self.maskFilled(target, path: path, gray: 0)
+            maskTargeted = true
+        case .paint(let target):
+            updated = Self.pixelsFilled(target, path: path, color: nil)
+        case .needsAutoMask(var target):
+            target.mask = Mask(texture: MaskTexture(width: target.source.width,
+                                                    height: target.source.height,
+                                                    fill: 255),
+                               isEnabled: true)
+            updated = Self.maskFilled(target, path: path, gray: 0)
+            maskTargeted = true
+        }
+        guard let updated else { return }
+        commit("Clear", document: document.replacingLayer(updated))
     }
 
     /// Writes `layer` to the pasteboard in both flavours. Returns false when
