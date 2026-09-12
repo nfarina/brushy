@@ -66,6 +66,9 @@ final class DocumentStore: ObservableObject {
     /// Layers / History segment of the right column. Per-window UI
     /// state like the active tool — outside the document, outside undo.
     @Published var rightPanel: RightPanel = .layers
+    /// Tab (on the canvas) or View ▸ Hide Panels: only the canvas stays.
+    /// Per window and never persisted, like Photoshop's.
+    @Published var panelsHidden = false
     @Published var activeTool: Tool = .move {
         didSet { toolDidChange(from: oldValue) }
     }

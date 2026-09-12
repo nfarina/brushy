@@ -94,6 +94,10 @@ final class DefaultsTests: XCTestCase {
         // perf
         roundTrip(K.undoDepth, 25)
         roundTrip(K.undoByteBudgetMB, 750)
+        roundTrip(K.chatModel, "gemini-3.5-flash-lite")
+        roundTrip(K.chatThinkingLevel, "high")
+        roundTrip(K.imageModel, "gemini-3-pro-image")
+        roundTrip(K.chatSidebarVisible, true)
     }
 
     /// `Keys.all` is what `reset(_:)` walks, so a key missing from it would
@@ -107,7 +111,7 @@ final class DefaultsTests: XCTestCase {
         }
         // Spot-check the count against the declared keys above: bumping one
         // without the other is the drift this guards.
-        XCTAssertEqual(all.count, 28)
+        XCTAssertEqual(all.count, 32)
     }
 
     /// A garbage value of the wrong type must not crash or leak through.

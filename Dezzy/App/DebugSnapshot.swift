@@ -1,4 +1,5 @@
 import AppKit
+import Security
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,6 +14,10 @@ enum DebugSnapshot {
     static func handleLaunchArgumentsIfNeeded() {
         guard let path = ProcessInfo.processInfo.environment["DEZZY_SNAPSHOT"],
               !path.isEmpty else { return }
+        // Nobody is there to click a keychain permission prompt — and an
+        // ad-hoc-signed build gets one on its first key read after every
+        // rebuild. Reads fail silently instead (the "add a key" hint shows).
+        SecKeychainSetUserInteractionAllowed(false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             // DEZZY_OPEN=<path> opens a file through the app's real
             // routing first (the PSD reader, in practice). An environment
@@ -35,6 +40,21 @@ enum DebugSnapshot {
             }
             window.makeKeyAndOrderFront(nil)
             applyDebugState(to: document.store)
+            // DEZZY_SNAPSHOT_STATE=settingswindow captures the REAL Settings
+            // window (toolbar tabs and all) through the window server, which
+            // cacheDisplay can't do — see `captureThroughWindowServer`.
+            if ProcessInfo.processInfo.environment["DEZZY_SNAPSHOT_STATE"] == "settingswindow" {
+                let pane = ProcessInfo.processInfo.environment["DEZZY_SNAPSHOT_PANE"]
+                    .flatMap(SettingsView.Pane.init(rawValue:)) ?? .general
+                SettingsWindowController.showWindow(pane: pane)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if let settings = SettingsWindowController.currentWindow {
+                        captureThroughWindowServer(settings, to: URL(fileURLWithPath: path))
+                    }
+                    exit(0)
+                }
+                return
+            }
             embedDialogIfRequested(in: window, store: document.store)
             // Give SwiftUI a runloop pass to rebuild panels before capturing —
             // and let async store work (Select Subject's Vision request) land
@@ -71,6 +91,12 @@ enum DebugSnapshot {
                       + (window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"))
             }
             window.contentView?.layoutSubtreeIfNeeded()
+            // DEZZY_SNAPSHOT_WINDOW=1: the whole window as composed, title
+            // bar included (the title-bar accessory is only visible this way).
+            if ProcessInfo.processInfo.environment["DEZZY_SNAPSHOT_WINDOW"] == "1" {
+                captureThroughWindowServer(window, to: URL(fileURLWithPath: path))
+                return
+            }
             write(window: window, store: store, to: URL(fileURLWithPath: path))
         }
     }
@@ -87,8 +113,8 @@ enum DebugSnapshot {
         // snapshotted either — same embedding trick, same reason.
         let dialog: (view: AnyView, size: CGSize)?
         if isSettingsSnapshot {
-            // DEZZY_SNAPSHOT_PANE picks the pane; without it a TabView
-            // always renders its first tab and only General is reachable.
+            // DEZZY_SNAPSHOT_PANE picks the pane (the tab strip is the
+            // real window's toolbar and isn't part of this embedding).
             let pane = ProcessInfo.processInfo.environment["DEZZY_SNAPSHOT_PANE"]
                 .flatMap(SettingsView.Pane.init(rawValue:)) ?? .general
             dialog = (AnyView(SettingsView(pane: pane)), SettingsView.preferredSize)
@@ -210,6 +236,29 @@ enum DebugSnapshot {
             store.beginBrushStroke(at: CGPoint(x: 300, y: 520), eraser: true)
             store.continueBrushStroke(to: CGPoint(x: 480, y: 330))
             store.endBrushStroke()
+        case "panelshidden":
+            // Tab: only the canvas.
+            store.panelsHidden = true
+        case "chat":
+            // The AI sidebar with a seeded transcript: a user request, the
+            // script that ran, and the reply.
+            MainActor.assumeIsolated {
+                ChatStore.shared.isSidebarVisible = true
+                let session = ChatStore.shared.newChat()
+                var chat = session.chat
+                chat.title = "Arrange the screenshots"
+                chat.messages = [
+                    ChatMessage(role: .user, text: "Arrange the two layers side by side with a 24px gap and fit the canvas."),
+                    ChatMessage(role: .tool, tool: ToolCallRecord(
+                        name: ChatTools.executeName, description: "Arrange layers in a row and fit canvas",
+                        code: "doc.arrange(doc.layers, { gap: 24, x: 0, y: 0 });\ndoc.fitCanvasToContent(0);",
+                        status: .succeeded, result: "OK. doc1 \"Untitled\": canvas 800×600 → 1224×400; changed \"Photo\", \"Checker\"",
+                        duration: 0.02)),
+                    ChatMessage(role: .assistant, text: "Done — both layers sit in a row 24px apart and the canvas now hugs them."),
+                ]
+                session.load(chat)
+                ChatStore.shared.activeChatID = chat.id
+            }
         case "history":
             // a history with a redo tail — several named steps, then
             // a jump back so the dimmed rows ahead are visible.
@@ -466,6 +515,25 @@ enum DebugSnapshot {
         default:
             break
         }
+    }
+
+    /// The whole window including its title bar and toolbar: `cacheDisplay`
+    /// on the theme frame (the content view's superview) rather than the
+    /// content view. The Metal canvas still comes out blank, and
+    /// `CGWindowListCreateImage` is no alternative — it returns white
+    /// without Screen Recording permission, even for the app's own windows.
+    static func captureThroughWindowServer(_ window: NSWindow, to url: URL) {
+        guard let frame = window.contentView?.superview,
+              let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { return }
+        frame.cacheDisplay(in: frame.bounds, to: rep)
+        guard let image = rep.cgImage,
+              let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString,
+                                                                1, nil) else {
+            NSLog("Dezzy: window capture failed for \(window.title)")
+            return
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
     }
 
     static func write(window: NSWindow, store: DocumentStore, to url: URL) {

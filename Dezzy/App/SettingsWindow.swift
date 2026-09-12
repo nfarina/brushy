@@ -8,76 +8,129 @@ import SwiftUI
 /// Deliberately **not** parented to a document window and not held by any
 /// `DezzyDocument`: preferences are app-scoped, so the window has to
 /// survive every document closing, and ⌘, has to work with none open.
+///
+/// AppKit's `NSTabViewController` in toolbar style, with one SwiftUI pane
+/// per tab: that is what every native Settings window is (the tabs ARE the
+/// window's toolbar, in `.preference` style). A SwiftUI `TabView` inside a
+/// plain `NSWindow` only imitates it, and shoved every tab into an overflow
+/// menu once there were six.
 final class SettingsWindowController: NSWindowController {
-    /// Strong app-lifetime reference — with `isReleasedWhenClosed` off, this is
-    /// what keeps the window (and its SwiftUI state) alive across close/reopen.
+    /// Held while the window is open; dropped on close so the next ⌘, builds
+    /// fresh panes, which re-read their values on creation.
     private static var shared: SettingsWindowController?
+    private let tabs: SettingsTabViewController
 
-    static func showWindow() {
+    /// The open Settings window, for `DebugSnapshot`.
+    static var currentWindow: NSWindow? { shared?.window }
+
+    static func showWindow(pane: SettingsView.Pane? = nil) {
         let controller = shared ?? {
             let created = SettingsWindowController()
             shared = created
             return created
         }()
+        if let pane, let index = SettingsView.Pane.allCases.firstIndex(of: pane) {
+            controller.tabs.selectedTabViewItemIndex = index
+        }
         NSApp.activate(ignoringOtherApps: true)
         controller.window?.makeKeyAndOrderFront(nil)
     }
 
-    private convenience init() {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
-        window.title = "Settings"
+    private init() {
+        let tabs = SettingsTabViewController()
+        tabs.tabStyle = .toolbar
+        for pane in SettingsView.Pane.allCases {
+            // Fixed pane size (`SettingsView` frames it), not SwiftUI's
+            // ideal size: a grouped Form reports a size that depends on its
+            // content, and the window would jump between tabs.
+            let host = NSHostingController(rootView: SettingsView(pane: pane))
+            host.sizingOptions = []
+            host.preferredContentSize = SettingsView.preferredSize
+            host.title = pane.title
+            let item = NSTabViewItem(viewController: host)
+            item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
+            tabs.addTabViewItem(item)
+        }
+        let window = NSWindow(contentViewController: tabs)
+        window.title = SettingsView.Pane.general.title
+        window.toolbarStyle = .preference
         // No resize/minimise: a preferences window sizes to its panes, like
         // every other macOS Settings window.
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
-        window.center()
         // Not .darkAqua like the document windows — Settings follows the
         // system appearance, which is what "native-looking" means here.
-        self.init(window: window)
+        self.tabs = tabs
+        super.init(window: window)
         window.setFrameAutosaveName("DezzySettings")
+        window.setContentSize(SettingsView.preferredSize)
+        window.center()
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window,
+                                               queue: .main) { _ in Self.shared = nil }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
+/// Titles the window after the selected tab, as System Settings and Xcode do.
+private final class SettingsTabViewController: NSTabViewController {
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        view.window?.title = tabViewItem?.label ?? "Settings"
     }
 }
 
-/// On macOS 14 a plain `TabView` with `.tabItem` labels renders in the native
-/// preferences style (icon-over-title toolbar), so no custom chrome is needed.
+/// The panes, and a SwiftUI view of one of them. `SettingsView` itself is
+/// only used by `DebugSnapshot`, which embeds a pane in the main window
+/// (the Settings window is a secondary window and can't be captured).
 struct SettingsView: View {
     /// Sized to fit the panes without scrolling, except Tools — which has
     /// four sections and scrolls inside its Form rather than making every
-    /// other pane tall and empty. `DebugSnapshot` embeds the view at this size.
+    /// other pane tall and empty.
     static let preferredSize = CGSize(width: 560, height: 520)
 
-    /// Which pane opens. Only `DebugSnapshot` passes anything but `.general`:
-    /// the window is a secondary window and can't be captured, so it is
-    /// embedded in the main window instead — and a TabView with no selection
-    /// binding always shows its first tab, leaving every other pane
-    /// unverifiable headlessly.
     enum Pane: String, CaseIterable {
-        case general, guides, tools, performance, color
+        case general, guides, tools, performance, color, ai
+
+        var title: String {
+            switch self {
+            case .general: return "General"
+            case .guides: return "Guides & Grid"
+            case .tools: return "Tools"
+            case .performance: return "Performance"
+            case .color: return "Color"
+            case .ai: return "AI"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .general: return "gearshape"
+            case .guides: return "square.grid.3x3"
+            case .tools: return "paintbrush"
+            case .performance: return "speedometer"
+            case .color: return "paintpalette"
+            case .ai: return "sparkles"
+            }
+        }
+
+        @ViewBuilder var view: some View {
+            switch self {
+            case .general: GeneralSettingsPane()
+            case .guides: GuidesGridSettingsPane()
+            case .tools: ToolsSettingsPane()
+            case .performance: PerformanceSettingsPane()
+            case .color: ColorSettingsPane()
+            case .ai: AISettingsPane()
+            }
+        }
     }
 
-    @State var pane: Pane = .general
+    var pane: Pane = .general
 
     var body: some View {
-        TabView(selection: $pane) {
-            GeneralSettingsPane()
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(Pane.general)
-            GuidesGridSettingsPane()
-                .tabItem { Label("Guides & Grid", systemImage: "square.grid.3x3") }
-                .tag(Pane.guides)
-            ToolsSettingsPane()
-                .tabItem { Label("Tools", systemImage: "paintbrush") }
-                .tag(Pane.tools)
-            PerformanceSettingsPane()
-                .tabItem { Label("Performance", systemImage: "speedometer") }
-                .tag(Pane.performance)
-            ColorSettingsPane()
-                .tabItem { Label("Color", systemImage: "paintpalette") }
-                .tag(Pane.color)
-        }
-        // No outer padding: the tab strip runs to the window edge, as it does
-        // in every native Settings window. The panes supply their own insets.
-        .frame(width: Self.preferredSize.width, height: Self.preferredSize.height)
+        pane.view
+            .frame(width: Self.preferredSize.width, height: Self.preferredSize.height)
     }
 }
 
@@ -86,7 +139,7 @@ struct SettingsView: View {
 /// Every pane is Form + a pane-scoped Reset. The reset is scoped to one
 /// `SettingsDomain` on purpose: resetting the Tools pane must not throw away
 /// the user's colour-management choices.
-private struct SettingsPane<Content: View>: View {
+struct SettingsPane<Content: View>: View {
     /// The only domain this pane's Reset clears — the button can't be wired to
     /// the wrong one, because clearing IS `Defaults.reset(domain)` here.
     let domain: SettingsDomain

@@ -56,6 +56,9 @@ enum SettingsDomain: String, CaseIterable {
     case color
     /// Undo depth (and, from, the history byte budget).
     case perf
+    /// The AI chat sidebar: model choice and thinking level — the AI pane.
+    /// The API key itself lives in the Keychain (`APIKeys`), never here.
+    case chat
 }
 
 /// A typed preference key: name, fallback and owning pane in one value, so
@@ -273,6 +276,18 @@ extension Defaults {
         static let undoByteBudgetMB = DefaultsKey("perf.undoByteBudgetMB",
                                                   default: 2_000, domain: .perf)
 
+        // MARK: chat — AI pane
+        /// LIVE — read when each turn is sent (`ChatStore.makeProvider`).
+        static let chatModel = DefaultsKey("chat.model", default: "gemini-3.8-flash", domain: .chat)
+        /// LIVE — Gemini `thinking_level`; "default" sends none.
+        static let chatThinkingLevel = DefaultsKey("chat.thinkingLevel", default: "low", domain: .chat)
+        /// LIVE — the model behind the `generate_image` tool.
+        static let imageModel = DefaultsKey("chat.imageModel", default: "gemini-3.1-flash-image",
+                                            domain: .chat)
+        /// App-level sidebar visibility (`ChatStore.isSidebarVisible`), so
+        /// the next launch opens the way the last one closed.
+        static let chatSidebarVisible = DefaultsKey("chat.sidebarVisible", default: false, domain: .chat)
+
         /// The registry `Defaults.reset(_:)` walks. Every key above appears
         /// here exactly once — `DefaultsTests` checks the names are unique and
         /// that no domain is empty.
@@ -288,6 +303,7 @@ extension Defaults {
             exportProfile.erased, embedProfile.erased, exportSixteenBit.erased,
             jpegQuality.erased,
             undoDepth.erased, undoByteBudgetMB.erased,
+            chatModel.erased, chatThinkingLevel.erased, imageModel.erased, chatSidebarVisible.erased,
         ]
     }
 }

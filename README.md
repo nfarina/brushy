@@ -9,7 +9,11 @@ Layers with blend modes, groups and clipping masks. Move, marquee, lasso, crop,
 eyedropper, brush, eraser, gradient, text and shape tools. Selections that
 feather, modify and transform, including Select Subject and Quick Mask. Non-destructive
 transforms, layer effects, rulers/guides/grid with snapping, a history panel,
-and PSD read/write.
+and PSD read/write. An AI chat sidebar (⌘L, or the button at the right of the
+title bar) that edits the open documents from plain language by writing scripts
+against a small JavaScript API — including an HTML Canvas 2D context over any
+paint layer's pixels, so patterns, charts and custom artwork are one layer, not
+a hundred. Tab hides every panel, Photoshop-style.
 
 Deliberately out of scope for now: adjustment layers, filters, curves and levels,
 healing and clone, and RAW.
@@ -33,15 +37,25 @@ or open `Dezzy.xcodeproj` in Xcode (16+) and run. `DEZZY_DEMO=1` in
 the environment (or launching with `--demo`) opens the hardcoded two-layer
 demo composite instead of an empty document.
 
+The AI sidebar needs a Gemini API key (Settings → AI, stored in the login
+keychain; the `GEMINI_API_KEY` environment variable also works).
+
 Headless UI checks (`DebugSnapshot`, all environment variables — an absolute
 path in `argv` is taken by AppKit as a document to open and can wedge the app
 in a modal error): `DEZZY_SNAPSHOT=<png>` renders the window to disk and
 exits, `DEZZY_SNAPSHOT_STATE=<state>` puts the UI into one first
 (`transform`, `crop`, `brush`, `guides`, `groups`, `effects`, `layerstyle`,
-`settings`, …), and `DEZZY_OPEN=<file>` opens a file through the app's real routing
-first — the way to see a `.psd` land as layers. Sheets can't be captured
-(SwiftUI sheet content caches as bare control shapes, no text), so dialog
-states embed the same view in the window instead.
+`settings`, `settingswindow`, `chat`, `panelshidden`, …), and `DEZZY_OPEN=<file>` opens a
+file through the app's real routing first — the way to see a `.psd` land as layers.
+Sheets can't be captured (SwiftUI sheet content caches as bare control shapes, no
+text), so dialog states embed the same view in the window instead.
+`DEZZY_SNAPSHOT_WINDOW=1` captures the window's theme frame — title bar and toolbar
+included, Metal canvas blank — and `settingswindow` captures the real Settings window
+the same way (`CGWindowListCreateImage` is no use: it returns white without Screen
+Recording permission, even for the app's own windows). Snapshot runs disable keychain
+prompts, because an ad-hoc-signed build gets one on its first key read after every
+rebuild; signing the installed copy with an Apple Development identity makes "Always
+Allow" stick.
 
 ## Tests
 
@@ -64,6 +78,17 @@ inflates frame times ~2×. Trust them only in isolation:
 xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test -only-testing:DezzyTests/PerformanceTests -only-testing:DezzyTests/GroupPerformanceTests -only-testing:DezzyTests/EffectsPerformanceTests
 ```
 
+Live model evaluations (`ChatEvalTests`) send real requests to Gemini and
+check the resulting documents — six plain-language tasks against the
+configured chat model, a few cents per run. They skip unless asked for:
+
+```bash
+TEST_RUNNER_DEZZY_EVAL=1 xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test -only-testing:DezzyTests/ChatEvalTests
+```
+
+(`TEST_RUNNER_DEZZY_EVAL_MODEL=gemini-3.5-flash-lite` tries another model;
+the key comes from `GEMINI_API_KEY` or `~/.config/imagegen/secrets.env`.)
+
 Golden fixtures live in `DezzyTests/Fixtures/` (JSON descriptions +
 reference PNGs). Regenerate them with:
 
@@ -79,6 +104,27 @@ baselines; `colorsync` references check colour conversion against ColorSync
 independently of Core Image. Failures write red-pixel diffs to `test-output/`.
 
 ## Architecture notes
+
+- `Dezzy/Scripting` — the JavaScript API the AI (and, later, a CLI) drives.
+  `ScriptSession` is a transactional copy of the open documents with a flat
+  JSON-in/JSON-out op set over the pure `Document` ops; `ScriptPrelude` is
+  the JavaScript object model (`dezzy`, `doc`, `Layer`, `Group`) over one
+  host call; `ScriptAPIDeclaration` is the `.d.ts` the model reads;
+  `ScriptHost` runs a script in a fresh JavaScriptCore context with the
+  execution-time watchdog (`JSContextGroupSetExecutionTimeLimit`, a private
+  symbol — this app is not App Store bound); `ScriptRunner` snapshots, runs
+  off-main, and commits one history entry per touched document, refusing to
+  overwrite a document that changed underneath the script. Scripts see
+  top-left, y-down coordinates and short ids (`doc1`, `l3fa9c1`);
+  `ScriptGeometry` flips to canvas space. A script that throws applies
+  nothing.
+- `Dezzy/AI` — the chat: `GeminiClient` (the Interactions REST API, stateless
+  with streaming, thought signatures echoed verbatim), `ChatSession` (the
+  tool loop: `execute`, `look`, `generate_image`), `ChatStore` (app-level
+  chat list, JSON under Application Support), `ChatPrompt` (system prompt +
+  the per-message [Context] block describing every open document, so most
+  requests need no inspection round trip). The API key lives in the
+  Keychain (`APIKeys`), never in `UserDefaults`.
 
 - `Dezzy/Model` — value-type `Document`/`Layer`/`Mask`. Sources are
   never mutated; crop shifts transforms only; masks are copy-on-write.
@@ -286,10 +332,14 @@ Implementation choices worth knowing:
   instead of two: the view-furniture `ViewDefaults` enum inside `DocumentStore`
   and the New Document dialog's ad-hoc `UserDefaults` keys both moved into
   `App/Defaults.swift`. Raw key names are unchanged, so upgrading loses no
-  settings. Five panes — General, Guides & Grid, Tools, Performance, Color —
-  each with a Reset scoped to its own domain. The window is app-scoped (one
-  shared `NSWindowController`, not parented to a document), so ⌘, works with
-  no document open and survives every document closing.
+  settings. Six panes — General, Guides & Grid, Tools, Performance, Color, AI —
+  each with a Reset scoped to its own domain. The window is an AppKit
+  `NSTabViewController` in toolbar style (the tabs are the window's toolbar,
+  `.preference` style, titled after the pane), which is what a native Settings
+  window is; a SwiftUI `TabView` in a plain `NSWindow` only imitates it and
+  collapsed every tab into an overflow menu at six. App-scoped (one shared
+  `NSWindowController`, not parented to a document), so ⌘, works with no
+  document open and survives every document closing.
   The split that matters: **seed-only** settings are read once when a
   `DocumentStore` / `DezzyDocument` / Export sheet is created and affect
   only the *next* one; **live** settings — grid spacing and subdivisions,

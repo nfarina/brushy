@@ -47,6 +47,12 @@ Dezzy/
             Exporter.swift, VectorRasterizer.swift, TextLayout.swift, ColorSpaces.swift,
             GeneratedImages.swift
   Store/    DocumentStore.swift          ← per-window state + undo history
+  Scripting/ ScriptSession.swift (JSON op interpreter over Document values), ScriptPrelude.swift (JS API),
+             ScriptAPIDeclaration.swift (.d.ts the model reads), ScriptHost.swift (JavaScriptCore + watchdog),
+             ScriptRunner.swift (snapshot → run off-main → commit), DocumentRegistry.swift (doc1/doc2 ids)
+  AI/       GeminiClient.swift, ChatSession.swift (tool loop), ChatTools.swift (execute/look/generate_image),
+            ChatStore.swift, ChatPrompt.swift, Keychain.swift
+  UI/Chat/  ChatSidebar.swift
   UI/       RootView.swift, LayersPanel.swift, ToolViews.swift, *Sheet.swift, Thumbnails.swift
   UI/Canvas/ CanvasHostView.swift (events), CanvasController.swift (tool logic),
              CanvasMetalView.swift, CanvasOverlayView.swift (vector overlay),
@@ -180,6 +186,33 @@ in `CanvasHostView` → `CanvasController`. It redraws on every store change
 (cheap vector work); the Metal composite re-renders only when `renderVersion`,
 the viewport, the stroke preview, or the text-session exclusion changes.
 
+### Keychain reads are lazy and never happen in tests
+
+`APIKeys.gemini` hits the keychain. An ad-hoc-signed build gets a permission
+prompt on its first read after every rebuild, and under `xcodebuild test`
+nobody clicks it — the run hangs. So nothing reads the key at init:
+`ChatStore.hasGeminiKey` refreshes when a conversation appears and on
+`APIKeys.didChange`; tests stub `ChatStore.keyLookup`; snapshot runs call
+`SecKeychainSetUserInteractionAllowed(false)`.
+
+### Extending the scripting API (what the AI can do)
+
+One capability = three edits, kept in step: an op in `ScriptSession.perform`
+(pure `Document` ops from `Model/`, top-left coordinates flipped through
+`ScriptGeometry`), a method in `ScriptPrelude` (the JavaScript side), and its
+declaration in `ScriptAPIDeclaration` (the model's only documentation).
+Pixel drawing is the exception: `layer.draw(ctx => …)` records a Canvas 2D
+subset in JavaScript (`DrawingContext` in the prelude) and replays it in
+`ScriptDrawing` — extend the command set in both places, and document it on
+`DrawingContext` in the declaration.
+`ScriptHostTests.testDeclarationMentionsEveryPreludeMethod` fails when the
+`.d.ts` lags the prelude. Every op must leave the document invariants
+(group contiguity, clipping normalisation, fresh `sourceID` for new pixels)
+intact — the session never touches a store; `ScriptRunner.commit` is the one
+place scripts reach `DocumentStore.commit`, once per touched document.
+Scripts run off-main against `Document` value copies; anything they call
+must be safe there (rasterisers and `MaskFactory` are).
+
 ### Tests
 
 XCTest in `DezzyTests/`. The pattern worth preserving: **pure geometry is
@@ -214,3 +247,6 @@ harness.
    feature runs.
 7. The feature has been exercised in a **Release** build — Debug performance is
    not representative.
+8. A change to what scripts can do updates `ScriptAPIDeclaration` and, when
+   it changes how a model should behave, passes the live evals
+   (`TEST_RUNNER_DEZZY_EVAL=1 … -only-testing:DezzyTests/ChatEvalTests`).

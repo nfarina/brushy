@@ -38,6 +38,14 @@ final class DezzyDocument: NSDocument {
         // Documents group as tabs of one window, Photoshop-style.
         window.tabbingMode = .preferred
         window.tabbingIdentifier = "DezzyDocument"
+        // The AI chat toggle sits at the trailing end of the title bar, so
+        // it is still there once the sidebar is hidden.
+        let toggle = NSHostingView(rootView: ChatSidebarToggle())
+        toggle.frame.size = toggle.fittingSize
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = toggle
+        accessory.layoutAttribute = .trailing
+        window.addTitlebarAccessoryViewController(accessory)
         window.center()
         addWindowController(NSWindowController(window: window))
     }
@@ -205,6 +213,8 @@ final class DezzyDocument: NSDocument {
     @objc func toggleGrid(_ sender: Any?) { store.gridVisible.toggle() }
     @objc func togglePixelGrid(_ sender: Any?) { store.pixelGridVisible.toggle() }
     @objc func toggleSnapping(_ sender: Any?) { store.snappingEnabled.toggle() }
+    /// Tab on the canvas does the same — Photoshop's "just the artwork" view.
+    @objc func togglePanels(_ sender: Any?) { store.panelsHidden.toggle() }
 
     /// Layer-structure actions grey out while type is being edited in place,
     /// like Photoshop.
@@ -341,6 +351,9 @@ final class DezzyDocument: NSDocument {
         // as the checkmark refresh, since the menu is rebuilt nowhere else.
         case #selector(toggleRulers(_:)):
             (item as? NSMenuItem)?.state = store.rulersVisible ? .on : .off
+            return true
+        case #selector(togglePanels(_:)):
+            (item as? NSMenuItem)?.title = store.panelsHidden ? "Show Panels" : "Hide Panels"
             return true
         case #selector(toggleGuides(_:)):
             (item as? NSMenuItem)?.state = store.guidesVisible ? .on : .off

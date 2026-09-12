@@ -12,16 +12,22 @@ enum RightPanel: String, CaseIterable, Identifiable {
 
 struct RootView: View {
     @ObservedObject var store: DocumentStore
+    /// App-level: the same chats in every window (`ChatStore`).
+    @ObservedObject var chats: ChatStore = .shared
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolOptionsBar(store: store)
-                .frame(height: 38)
-            Divider()
-            HStack(spacing: 0) {
-                ToolStrip(store: store)
-                    .frame(width: 44)
+            if !store.panelsHidden {
+                ToolOptionsBar(store: store)
+                    .frame(height: 38)
                 Divider()
+            }
+            HStack(spacing: 0) {
+                if !store.panelsHidden {
+                    ToolStrip(store: store)
+                        .frame(width: 44)
+                    Divider()
+                }
                 CanvasRepresentable(store: store)
                     .frame(minWidth: 480, maxWidth: .infinity,
                            minHeight: 320, maxHeight: .infinity)
@@ -35,22 +41,14 @@ struct RootView: View {
                         }
                     }
                     .animation(.easeInOut(duration: 0.18), value: store.toast)
-                Divider()
-                VStack(spacing: 0) {
-                    Picker("", selection: $store.rightPanel) {
-                        ForEach(RightPanel.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                if !store.panelsHidden {
                     Divider()
-                    switch store.rightPanel {
-                    case .layers: LayersPanel(store: store)
-                    case .history: HistoryPanel(store: store)
+                    rightColumn
+                    if chats.isSidebarVisible {
+                        Divider()
+                        ChatSidebar(chats: chats)
                     }
                 }
-                .frame(width: 280)
             }
         }
         .frame(minWidth: 1000, minHeight: 620)
@@ -85,6 +83,26 @@ struct RootView: View {
         } message: {
             Text(store.lastErrorMessage ?? "")
         }
+    }
+}
+
+private extension RootView {
+    var rightColumn: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $store.rightPanel) {
+                ForEach(RightPanel.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            Divider()
+            switch store.rightPanel {
+            case .layers: LayersPanel(store: store)
+            case .history: HistoryPanel(store: store)
+            }
+        }
+        .frame(width: 280)
     }
 }
 

@@ -1,9 +1,54 @@
 import AppKit
 import UniformTypeIdentifiers
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.build()
+        Self.configureDocumentRegistry()
+    }
+
+    /// The scripting layer's view of the open documents (`DocumentRegistry`)
+    /// is the only place `NSDocumentController` meets the AI code.
+    static func configureDocumentRegistry() {
+        let registry = DocumentRegistry.shared
+        registry.enumerate = {
+            var seen = Set<ObjectIdentifier>()
+            var ordered: [DezzyDocument] = []
+            // Frontmost first, then anything AppKit's ordering left out.
+            for document in NSApp.orderedDocuments.compactMap({ $0 as? DezzyDocument })
+                + NSDocumentController.shared.documents.compactMap({ $0 as? DezzyDocument })
+            where seen.insert(ObjectIdentifier(document)).inserted {
+                ordered.append(document)
+            }
+            return ordered.map { ($0.store, $0.displayName ?? "Untitled") }
+        }
+        registry.active = { frontDezzyDocument()?.store }
+        registry.createDocument = { document, _ in
+            let created = ((try? NSDocumentController.shared
+                .openUntitledDocumentAndDisplay(false)) as? DezzyDocument) ?? {
+                let fallback = DezzyDocument()
+                NSDocumentController.shared.addDocument(fallback)
+                return fallback
+            }()
+            created.store.replaceDocument(document, actionName: DocumentStore.newDocumentActionName)
+            created.store.canvasSizeChosenExplicitly = true
+            created.makeWindowControllers()
+            created.showWindows()
+            return created.store
+        }
+    }
+
+    /// View → Show AI Chat (⌘L). App-level like Settings: one flag every
+    /// window's sidebar follows.
+    @objc func toggleChatSidebar(_ sender: Any?) {
+        MainActor.assumeIsolated { ChatStore.shared.isSidebarVisible.toggle() }
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleChatSidebar(_:)) {
+            item.state = MainActor.assumeIsolated { ChatStore.shared.isSidebarVisible } ? .on : .off
+        }
+        return true
     }
 
     private var isDemoLaunch: Bool {

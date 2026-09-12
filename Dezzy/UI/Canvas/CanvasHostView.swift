@@ -300,6 +300,10 @@ final class CanvasHostView: NSView {
         case 53: // esc
             controller.handleEscape()
             return
+        case 48: // tab — hide/show every panel (Photoshop); keyDown-only so
+                 // text fields keep Tab for focus
+            store.panelsHidden.toggle()
+            return
         case 36, 76: // return / enter
             controller.handleReturn()
             return

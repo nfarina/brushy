@@ -334,6 +334,17 @@ enum MainMenuBuilder {
                                 action: #selector(DezzyDocument.toggleSnapping(_:)),
                                 keyEquivalent: ";")
         snap.keyEquivalentModifierMask = [.command, .shift]
+        // App-level, like Settings: the chat sidebar belongs to the app,
+        // not a document, so the delegate handles it and the checkmark
+        // refreshes in `AppDelegate.validateMenuItem`.
+        view.addItem(.separator())
+        view.addItem(withTitle: "Show AI Chat",
+                     action: #selector(AppDelegate.toggleChatSidebar(_:)), keyEquivalent: "l")
+        // No key equivalent on purpose: Tab as a menu shortcut would steal
+        // focus traversal from every text field, so the canvas handles Tab
+        // in keyDown and the title retitles in validateUserInterfaceItem.
+        view.addItem(withTitle: "Hide Panels",
+                     action: #selector(DezzyDocument.togglePanels(_:)), keyEquivalent: "")
         main.addItem(submenu: view, title: "View")
 
         // Window
