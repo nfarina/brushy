@@ -20,7 +20,7 @@ struct LayersPanel: View {
     @FocusState private var nameFieldFocused: Bool
 
     private var displayRows: [Document.PanelRow] {
-        store.document.panelRows()
+        store.panelRows
     }
 
     /// One UUID space covers both row kinds. The SET form is what

@@ -1346,16 +1346,20 @@ final class DocumentStore: ObservableObject {
 
     // MARK: - Transform mode (Cmd+T)
 
-    func enterTransformMode() {
+    /// With a selection up, ⌘T transforms the selected PIXELS, not the whole
+    /// layer (Photoshop): they float first and the ordinary session runs on
+    /// the float, whose base document predates the lift so Esc unwinds both.
+    ///
+    /// `selectionAware: false` transforms the whole layer regardless — what
+    /// arriving content wants (`armTransformForArrivedLayer`). A freshly
+    /// placed image has nothing to do with a selection someone left lying
+    /// around, and floating it would rasterize it on arrival.
+    func enterTransformMode(selectionAware: Bool = true) {
         commitAnySelectionTransformSession()
         guard transformSession == nil else { return }
-        // With a selection up, ⌘T transforms the selected PIXELS, not the
-        // whole layer (Photoshop): float them first and run the ordinary
-        // session on the float. Its base document is the one from before the
-        // lift, so Esc unwinds the lift along with the transform.
         // Adjustment layers have nothing to transform.
         if selectedLayer?.kind.adjustmentSpec != nil { return }
-        if !selection.isEmpty, let float = beginSelectionFloat(),
+        if selectionAware, !selection.isEmpty, let float = beginSelectionFloat(),
            let floating = document[layerID: float.floatLayerID] {
             transformSession = TransformSession(layer: floating,
                                                 baseDocument: float.baseDocument)
@@ -1390,7 +1394,7 @@ final class DocumentStore: ObservableObject {
     private func armTransformForArrivedLayer(_ id: UUID, adoptedCanvas: Bool) {
         guard !adoptedCanvas, document[layerID: id] != nil else { return }
         selectedLayerID = id
-        enterTransformMode()
+        enterTransformMode(selectionAware: false)
     }
 
     func updateTransformSession(_ transform: CGAffineTransform) {
@@ -1477,8 +1481,6 @@ final class DocumentStore: ObservableObject {
         let baseSelection: SelectionState
         let sourceLayerID: UUID
         let floatLayerID: UUID
-        /// Paint layers absorb the float again on commit; photos keep it.
-        let stampsBack: Bool
         let initialTransform: CGAffineTransform
         /// History name when the gesture lands without one of its own.
         let actionName: String
@@ -1621,7 +1623,7 @@ final class DocumentStore: ObservableObject {
         // rasterizes first and the pixels move within it. Masking the original
         // and leaving them in a new layer surprised more than it saved.
         var layer = selected
-        if !maskTargeted, Self.needsRasterize(layer) {
+        if Self.needsRasterize(layer) {
             guard let ready = autoRasterize(layer, because: "to move the selection") else { return nil }
             layer = ready
         }
@@ -1646,37 +1648,26 @@ final class DocumentStore: ObservableObject {
                                blendMode: layer.blendMode)
         floatLayer.groupID = layer.groupID
 
-        // Where the hole goes mirrors Cut's routing exactly. After the
-        // rasterize above, only a deliberately targeted mask is not pixels.
-        var holed: Layer? = layer
-        var stampsBack = false
+        // The hole is always pixels: after the rasterize above, every layer
+        // that reaches here has its own. ⌥-drag skips it, so the duplicate
+        // lands in the pixels it came from.
+        var holed = layer
         if cutting {
-            if maskTargeted, layer.mask != nil {
-                holed = Self.maskFilled(layer, path: path, gray: 0)
-            } else if layer.isPaintable {
-                holed = Self.pixelsFilled(layer, path: path, color: nil)
-                stampsBack = true
-            } else {
-                return nil
-            }
-        } else if layer.isPaintable {
-            // ⌥-drag on a paint layer: the copy merges back into the same
-            // layer, so the duplicate lands in the pixels it came from.
-            stampsBack = true
+            guard layer.isPaintable,
+                  let cut = Self.pixelsFilled(layer, path: path, color: nil) else { return nil }
+            holed = cut
         }
-        guard let holed else { return nil }
 
         var doc = document.replacingLayer(holed)
         doc.layers.insert(floatLayer, at: index + 1)
         let float = SelectionFloat(baseDocument: document, baseSelection: selection,
                                    sourceLayerID: layer.id, floatLayerID: floatLayer.id,
-                                   stampsBack: stampsBack,
                                    initialTransform: floatLayer.transform,
                                    actionName: cutting ? "Move Selection" : "Duplicate Selection")
         selectionFloat = float
         setLiveDocument(doc)
-        maskTargeted = false
-        selectedLayerID = floatLayer.id
+        // The layer the pixels came from stays selected: the float is
+        // scaffolding, and `panelRows` keeps it out of the panel entirely.
         return float
     }
 
@@ -1703,7 +1694,7 @@ final class DocumentStore: ObservableObject {
             return
         }
         var doc = document
-        if float.stampsBack, let target = doc[layerID: float.sourceLayerID],
+        if let target = doc[layerID: float.sourceLayerID],
            let stamped = Self.stamping(floatLayer, into: target,
                                        canvasRect: document.canvasRect) {
             doc = doc.removingLayer(id: float.floatLayerID).replacingLayer(stamped)
@@ -1711,6 +1702,16 @@ final class DocumentStore: ObservableObject {
         }
         commit(actionName ?? float.actionName, document: doc,
                selection: float.baseSelection.transformed(by: moved))
+    }
+
+    /// Rows for the Layers panel. A floating selection is scaffolding the user
+    /// never asked for — it lives in the document so the renderer and the move
+    /// tool can see it — so it gets no row of its own, and the layer its
+    /// pixels came from stays the selected one.
+    var panelRows: [Document.PanelRow] {
+        let rows = document.panelRows()
+        guard let floatID = selectionFloat?.floatLayerID else { return rows }
+        return rows.filter { $0.id != floatID }
     }
 
     /// The float layer's transform right now — the anchor a fresh drag or

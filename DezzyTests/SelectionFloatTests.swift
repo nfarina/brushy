@@ -125,6 +125,38 @@ final class SelectionFloatTests: XCTestCase {
         XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 110, y: 50)).a, 250, "and a copy landed")
     }
 
+    func testTheFloatIsScaffolding_NoPanelRow_SourceStaysSelected() throws {
+        let (store, _) = makeStore(paintable: true)
+        let sourceID = store.document.layers[0].id
+        selectSquare(store)
+        let rowsBefore = store.panelRows.count
+
+        let float = try XCTUnwrap(store.beginSelectionFloat())
+        moveFloat(store, float, dx: 20)
+
+        XCTAssertEqual(store.document.layers.count, 2, "the float rides in the document…")
+        XCTAssertEqual(store.panelRows.count, rowsBefore, "…but never shows up as a row")
+        XCTAssertFalse(store.panelRows.contains { $0.id == float.floatLayerID })
+        XCTAssertEqual(store.selectedLayerID, sourceID,
+                       "the layer the pixels came from stays selected")
+    }
+
+    /// Arriving content (Place, Paste, drag-and-drop) arms Free Transform on
+    /// the layer that arrived — never on a selection left lying around, which
+    /// used to float and rasterize the new image the moment it landed.
+    func testArrivingContentTransformsItselfNotTheSelection() throws {
+        let (store, _) = makeStore(paintable: false)
+        selectSquare(store)
+
+        store.enterTransformMode(selectionAware: false)
+
+        let session = try XCTUnwrap(store.transformSession)
+        XCTAssertEqual(session.layerID, store.document.layers[0].id, "the layer itself transforms")
+        XCTAssertNil(store.selectionFloat, "nothing floated")
+        XCTAssertNil(store.toast, "and nothing was rasterized")
+        XCTAssertFalse(store.document.layers[0].isPaintable, "the arrival is untouched")
+    }
+
     func testCommandTGrabsTheSelectionAndEscapePutsItBack() throws {
         let (store, _) = makeStore(paintable: true)
         selectSquare(store)
