@@ -2765,8 +2765,10 @@ final class DocumentStore: ObservableObject {
         // expensive part, so cap it near display rate. The bake at stroke end
         // always uses the complete coverage.
         let now = CFAbsoluteTimeGetCurrent()
-        if let base = quickMaskStrokeBase, let stroke = activeStroke,
-           case .quickMask = stroke.target {
+        // Deliberately NOT `let stroke = activeStroke`: that copy keeps the
+        // stroke's canvas-sized coverage buffer referenced, so the mutation
+        // below would copy it on write — a canvas-sized memcpy per event.
+        if let base = quickMaskStrokeBase, activeStroke?.targetsQuickMask == true {
             guard quickMask == nil || now - lastStrokePreviewTime >= 0.012 else { return }
             lastStrokePreviewTime = now
             // Only what the last events actually touched, composited from the

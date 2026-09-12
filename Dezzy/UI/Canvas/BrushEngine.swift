@@ -79,6 +79,11 @@ struct BrushStroke {
         coverage = [UInt8](repeating: 0, count: targetWidth * targetHeight)
     }
 
+    var targetsQuickMask: Bool {
+        if case .quickMask = target { return true }
+        return false
+    }
+
     /// nil for the Quick Mask, which belongs to no layer.
     var layerID: UUID? {
         switch target {
@@ -210,20 +215,29 @@ struct BrushStroke {
             }
             guard let selectionClip else { return }
             // Multiply the emitted coverage by the selection's, over the dirty
-            // rect only. `(a * b + 127) / 255` is the usual rounded 8-bit
-            // product — exact at both ends, so a fully selected pixel keeps
-            // every bit of its coverage.
+            // rect only — `(a × b + 127) / 255`, the rounded 8-bit product,
+            // exact at both ends so a fully selected pixel keeps every bit of
+            // its coverage.
+            //
+            // Through vImage, not a byte loop: this runs over the WHOLE dirty
+            // region on every preview frame, and that region grows with the
+            // stroke. A scalar version measured 0.85 → 2.8 ms per event over
+            // one long stroke (Release, 2000×1500) — painting inside a
+            // selection got slower the longer the line got, while painting
+            // outside one stayed flat.
             selectionClip.withUnsafeBufferPointer { clip in
                 guard let clipBase = clip.baseAddress else { return }
-                let out = dst.assumingMemoryBound(to: UInt8.self)
-                for row in 0..<height {
-                    let clipRow = clipBase + (dirtyMin.row + row) * targetWidth + dirtyMin.col
-                    let outRow = out + row * width
-                    for col in 0..<width {
-                        let product = Int(outRow[col]) * Int(clipRow[col])
-                        outRow[col] = UInt8((product + 127) / 255)
-                    }
-                }
+                let clipOrigin = clipBase + (dirtyMin.row * targetWidth + dirtyMin.col)
+                var clipBuf = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: clipOrigin),
+                                            height: vImagePixelCount(height),
+                                            width: vImagePixelCount(width),
+                                            rowBytes: targetWidth)
+                var coverageBuf = vImage_Buffer(data: dst,
+                                                height: vImagePixelCount(height),
+                                                width: vImagePixelCount(width),
+                                                rowBytes: width)
+                _ = vImagePremultiplyData_Planar8(&coverageBuf, &clipBuf, &coverageBuf,
+                                                  vImage_Flags(kvImageNoFlags))
             }
         }
         guard let provider = CGDataProvider(data: data as CFData),
