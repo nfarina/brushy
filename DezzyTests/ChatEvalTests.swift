@@ -71,6 +71,7 @@ final class ChatEvalTests: XCTestCase {
         registry.active = { store }
         let tools = ChatTools(registry: registry, runner: ScriptRunner(registry: registry))
         let client = GeminiClient(apiKey: Self.apiKey()!)
+        tools.imageClient = { client }
         let provider = GeminiChatProvider(client: client, model: model, thinkingLevel: "low")
         let session = ChatSession(chat: Chat(), tools: tools, providerFactory: { provider },
                                   contextProvider: { ChatPrompt.contextPrefix(registry: registry) })
@@ -173,6 +174,54 @@ final class ChatEvalTests: XCTestCase {
         XCTAssertLessThan(navy.r, 100, "top-left should be navy: \(navy) — \(run.transcript)")
         XCTAssertGreaterThan(cream.r, 180, "second cell should be cream: \(cream) — \(run.transcript)")
         XCTAssertGreaterThan(below.r, 180, "cell below should be cream: \(below) — \(run.transcript)")
+    }
+
+    /// The Photoshop-plus-AI case: select part of a photo, ask for a change.
+    /// Costs an image generation (a few cents).
+    func testEditSelectedObject() async throws {
+        // A "photo" (imported, not paintable): sky, grass, sun, and a blue
+        // house with a door. A bare circle on white gets refused by the image
+        // model's recitation filter; a scene does not.
+        let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: DezzyColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let skyGradient = CGGradient(colorsSpace: DezzyColorSpace.sRGB,
+                             colors: [CGColor(srgbRed: 0.55, green: 0.75, blue: 0.95, alpha: 1),
+                                      CGColor(srgbRed: 0.85, green: 0.92, blue: 1, alpha: 1)] as CFArray, locations: [0, 1])!
+        ctx.drawLinearGradient(skyGradient, start: CGPoint(x: 0, y: 300), end: CGPoint(x: 0, y: 100), options: [])
+        ctx.setFillColor(CGColor(srgbRed: 0.35, green: 0.65, blue: 0.3, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 100))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0.85, blue: 0.3, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: 320, y: 220, width: 50, height: 50))
+        ctx.setFillColor(CGColor(srgbRed: 0.2, green: 0.35, blue: 0.85, alpha: 1))   // house body
+        ctx.fill(CGRect(x: 150, y: 100, width: 110, height: 90))
+        ctx.setFillColor(CGColor(srgbRed: 0.45, green: 0.25, blue: 0.15, alpha: 1))  // roof
+        ctx.move(to: CGPoint(x: 140, y: 190)); ctx.addLine(to: CGPoint(x: 205, y: 240)); ctx.addLine(to: CGPoint(x: 270, y: 190))
+        ctx.closePath(); ctx.fillPath()
+        ctx.setFillColor(CGColor(srgbRed: 0.3, green: 0.2, blue: 0.1, alpha: 1))     // door
+        ctx.fill(CGRect(x: 190, y: 100, width: 30, height: 50))
+        var document = Document(canvasSize: CGSize(width: 400, height: 300))
+        document.layers.append(Layer(name: "Photo", source: ctx.makeImage()!))
+        let store = DocumentStore(document: document)
+        // The user drags a marquee around the house (canvas y-up path).
+        store.combineSelection(CGPath(rect: CGRect(x: 135, y: 95, width: 140, height: 150), transform: nil), mode: .replace)
+
+        let run = await ask("Make the thing I selected red.", store: store)
+        XCTAssertTrue(run.transcript.contains("TOOL edit_image"), run.transcript)
+        XCTAssertEqual(run.store.document.layers.count, 2, run.transcript)
+        let placed = try XCTUnwrap(run.store.document.layers.last, run.transcript)
+        XCTAssertNotNil(placed.mask, "the edit should be masked to the selection")
+        let composite = try XCTUnwrap(ChatRenderer.composite(run.store.document, maxSide: 400))
+        if let dump = ProcessInfo.processInfo.environment["DEZZY_TEST_DUMP"] {
+            // The composite after the edit, and the crop the image model returned.
+            try ChatRenderer.png(composite)?.write(to: URL(fileURLWithPath: dump))
+            try run.messages.compactMap(\.tool?.imageData).last?
+                .write(to: URL(fileURLWithPath: dump).deletingPathExtension().appendingPathExtension("edit.jpg"))
+        }
+        let px = try rawRGBA8(composite, in: DezzyColorSpace.sRGB)
+        let wall = px[170, 130], sky = px[60, 40]
+        XCTAssertTrue(Int(wall.r) > Int(wall.b) + 60 && Int(wall.r) > Int(wall.g) + 40,
+                      "house wall should now be red: \(wall) — \(run.transcript)")
+        XCTAssertTrue(sky.b > 200 && sky.r < 180, "sky outside the selection untouched: \(sky)")
     }
 
     func testQuestionUsesContextWithoutTools() async {

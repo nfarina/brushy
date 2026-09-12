@@ -50,8 +50,9 @@ Dezzy/
   Scripting/ ScriptSession.swift (JSON op interpreter over Document values), ScriptPrelude.swift (JS API),
              ScriptAPIDeclaration.swift (.d.ts the model reads), ScriptHost.swift (JavaScriptCore + watchdog),
              ScriptRunner.swift (snapshot → run off-main → commit), DocumentRegistry.swift (doc1/doc2 ids)
-  AI/       GeminiClient.swift, ChatSession.swift (tool loop), ChatTools.swift (execute/look/generate_image),
-            ChatStore.swift, ChatPrompt.swift, Keychain.swift
+  AI/       GeminiClient.swift, ChatSession.swift (tool loop), ChatTools.swift (execute/look/generate_image/edit_image),
+            ImageEdit.swift (crop geometry + outlined reference for edit_image), ChatStore.swift, ChatPrompt.swift,
+            Keychain.swift
   UI/Chat/  ChatSidebar.swift
   UI/       RootView.swift, LayersPanel.swift, ToolViews.swift, *Sheet.swift, Thumbnails.swift
   UI/Canvas/ CanvasHostView.swift (events), CanvasController.swift (tool logic),

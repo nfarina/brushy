@@ -31,6 +31,10 @@ enum ChatPrompt {
         - `generate_image` makes a new image layer from a text prompt, optionally guided by existing layers. \
         It costs real money and is for photographic or illustrative content a script cannot draw — not for \
         backgrounds, gradients or plain shapes.
+        - When the user has a selection (the context shows "Selection:") and asks to change what is in it in a \
+        way that needs image understanding — recolour an object in a photo, remove or replace something, \
+        restyle it — use `edit_image`: it sends the model the area with its surroundings, outlined, and places \
+        the result masked to the selection. Pixels a script can draw (a flat fill, a shape) don't need it.
         - Reply briefly: one or two sentences on what you did or found. Never paste code into a reply; the \
         user sees each script in the tool call itself.
         - If a request is ambiguous in a way that would produce materially different results, ask a short \

@@ -13,7 +13,10 @@ and PSD read/write. An AI chat sidebar (⌘L, or the button at the right of the
 title bar) that edits the open documents from plain language by writing scripts
 against a small JavaScript API — including an HTML Canvas 2D context over any
 paint layer's pixels, so patterns, charts and custom artwork are one layer, not
-a hundred. Tab hides every panel, Photoshop-style.
+a hundred. With a Gemini image model it can also generate a layer from a prompt,
+and edit what you selected: select part of a photo, say "make this red", and the
+model gets the area outlined in context and hands back a crop that lands as a new
+layer masked to the selection. Tab hides every panel, Photoshop-style.
 
 Deliberately out of scope for now: adjustment layers, filters, curves and levels,
 healing and clone, and RAW.

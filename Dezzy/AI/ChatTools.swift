@@ -23,6 +23,16 @@ final class ChatTools {
     /// Nil when no key is configured; the tool then reports that.
     var imageClient: () -> GeminiClient? = { nil }
     var imageModel: () -> String = { "gemini-3.1-flash-image" }
+    /// The image model call (prompt, JPEG references, aspect ratio, size) →
+    /// JPEG. Defaults to `imageClient`; tests substitute a stub.
+    var generateImageData: ((String, [Data], String, String) async throws -> Data)?
+
+    private func generateData(prompt: String, references: [Data], ratio: String, size: String) async throws -> Data {
+        if let generateImageData { return try await generateImageData(prompt, references, ratio, size) }
+        guard let client = imageClient() else { throw GeminiError.missingKey }
+        return try await client.generateImage(model: imageModel(), prompt: prompt, references: references,
+                                              aspectRatio: ratio, imageSize: size)
+    }
 
     init(registry: DocumentRegistry, runner: ScriptRunner) {
         self.registry = registry
@@ -32,6 +42,7 @@ final class ChatTools {
     static let executeName = "execute"
     static let lookName = "look"
     static let generateImageName = "generate_image"
+    static let editImageName = "edit_image"
 
     static let declarations: [ToolDeclaration] = [
         ToolDeclaration(
@@ -79,6 +90,28 @@ final class ChatTools {
                 ]),
                 "required": .array([.string("prompt")]),
             ])),
+        ToolDeclaration(
+            name: editImageName,
+            description: "Change part of a document with an image model — the natural tool when the user has selected something (the marching-ants selection) and asks for it to be recoloured, replaced, removed, restyled or otherwise changed in a way that needs image understanding, e.g. \"make this red\", \"turn the mug into a teapot\", \"remove the sign\", \"replace the sky with sunset\". The composite around the area is sent to the model with the area outlined in red, the model returns the edited crop, and the result is placed as a new layer masked to the area, so only that part of the picture changes and the user can undo or tweak it. Give the change in your own words; the framing instructions are added for you. Without a selection, pass `region`.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "prompt": .object(["type": .string("string"), "description": .string("The change to make to the area, e.g. \"make the car bright red\".")]),
+                    "document": .object(["type": .string("string"), "description": .string("Document id; defaults to the active document.")]),
+                    "region": .object(["type": .string("object"),
+                                       "description": .string("The area to change when there is no selection: {x, y, width, height} in canvas pixels, top-left origin. Ignored when the document has a selection."),
+                                       "properties": .object([
+                                           "x": .object(["type": .string("number")]), "y": .object(["type": .string("number")]),
+                                           "width": .object(["type": .string("number")]), "height": .object(["type": .string("number")]),
+                                       ])]),
+                    "context": .object(["type": .string("number"),
+                                        "description": .string("How much of the surroundings to show the model, as a fraction of the area's size on each side (default 0.5). More context helps blending; less gives the area more of the model's resolution.")]),
+                    "outline": .object(["type": .string("boolean"),
+                                        "description": .string("Outline the area in red on the reference image so the prompt can refer to it (default true). Turn off only when the outline itself would confuse the edit.")]),
+                    "name": .object(["type": .string("string"), "description": .string("Name for the new layer.")]),
+                ]),
+                "required": .array([.string("prompt")]),
+            ])),
     ]
 
     func run(_ call: FunctionCall) async -> ToolOutcome {
@@ -86,6 +119,7 @@ final class ChatTools {
         case Self.executeName: return await execute(call)
         case Self.lookName: return await look(call)
         case Self.generateImageName: return await generateImage(call)
+        case Self.editImageName: return await editImage(call)
         default:
             return ToolOutcome(text: "Unknown tool \"\(call.name)\"", image: nil, status: .failed)
         }
@@ -202,7 +236,7 @@ final class ChatTools {
         guard let prompt = call.string("prompt"), !prompt.isEmpty else {
             return ToolOutcome(text: "Missing prompt.", image: nil, status: .failed)
         }
-        guard let client = imageClient() else {
+        guard generateImageData != nil || imageClient() != nil else {
             return ToolOutcome(text: GeminiError.missingKey.localizedDescription, image: nil, status: .failed)
         }
         guard let (id, store) = resolveStore(call) else {
@@ -239,16 +273,13 @@ final class ChatTools {
 
         let data: Data
         do {
-            data = try await client.generateImage(model: imageModel(), prompt: prompt, references: references,
-                                                  aspectRatio: ratio, imageSize: size)
+            data = try await generateData(prompt: prompt, references: references, ratio: ratio, size: size)
         } catch {
             return ToolOutcome(text: "Image generation failed: \(error.localizedDescription)", image: nil, status: .failed)
         }
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let raw = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        guard let image = Self.decode(data) else {
             return ToolOutcome(text: "The generated image could not be decoded.", image: nil, status: .failed)
         }
-        let image = ImageImporter.normalize(raw)
         let name = call.string("name").flatMap { $0.isEmpty ? nil : $0 } ?? "Generated: " + String(prompt.prefix(24))
         var placement: [String: Any] = ["name": name]
         if let x = call.double("x") { placement["x"] = x }
@@ -270,6 +301,98 @@ final class ChatTools {
             var text = "Generated a \(image.width)×\(image.height) image (\(ratio))"
             if !referenceNames.isEmpty { text += " guided by " + referenceNames.map { "\"\($0)\"" }.joined(separator: ", ") }
             outcome.text = text + " and placed it. " + outcome.text
+        }
+        outcome.displayImage = data
+        return outcome
+    }
+}
+
+extension ChatTools {
+    nonisolated static func decode(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let raw = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return ImageImporter.normalize(raw)
+    }
+
+    // MARK: - edit_image
+
+    /// Selection (or `region`) → padded, aspect-matched crop of the composite
+    /// with the area outlined → image model → placed back on the crop frame
+    /// as a new layer masked to the area. See `ImageEdit`.
+    fileprivate func editImage(_ call: FunctionCall) async -> ToolOutcome {
+        guard let prompt = call.string("prompt"), !prompt.isEmpty else {
+            return ToolOutcome(text: "Missing prompt.", image: nil, status: .failed)
+        }
+        guard generateImageData != nil || imageClient() != nil else {
+            return ToolOutcome(text: GeminiError.missingKey.localizedDescription, image: nil, status: .failed)
+        }
+        guard let (id, store) = resolveStore(call) else {
+            return ToolOutcome(text: "No such document is open.", image: nil, status: .failed)
+        }
+        store.commitPendingSessions()
+        let document = store.document
+        let canvas = document.canvasSize
+        let selection = store.selection
+
+        // The area: the selection, else an explicit region.
+        let region: CGRect
+        var explicitRegion: CGRect?
+        var outlinePath: CGPath?
+        if let path = selection.path {
+            region = ScriptGeometry.topLeft(path.boundingBoxOfPath, canvasHeight: canvas.height)
+            outlinePath = path
+        } else if let r = call.arguments["region"]?.objectValue,
+                  let x = r["x"]?.doubleValue, let y = r["y"]?.doubleValue,
+                  let w = r["width"]?.doubleValue, let h = r["height"]?.doubleValue, w > 0, h > 0 {
+            region = CGRect(x: x, y: y, width: w, height: h)
+            explicitRegion = region
+            outlinePath = CGPath(rect: ScriptGeometry.canvas(region, canvasHeight: canvas.height), transform: nil)
+        } else {
+            return ToolOutcome(text: "Nothing is selected in \(id). Ask the user to select the area (or pass a region: {x, y, width, height}).",
+                               image: nil, status: .failed)
+        }
+        guard region.width >= 1, region.height >= 1 else {
+            return ToolOutcome(text: "The area is empty.", image: nil, status: .failed)
+        }
+        let padding = CGFloat(call.double("context") ?? 0.5)
+        let outline = call.arguments["outline"]?.boolValue ?? true
+        let (frame, ratio) = ImageEdit.frame(around: region, padding: min(max(padding, 0), 3), canvas: canvas)
+        let size = Self.imageSize(forLongestEdge: Double(max(frame.width, frame.height)))
+        let scale = min(1, 1024 / max(frame.width, frame.height))
+
+        let path = outline ? outlinePath : nil
+        let reference = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard let composite = ChatRenderer.composite(document, maxSide: max(canvas.width, canvas.height) * scale) else {
+                return nil
+            }
+            return ImageEdit.reference(composite: composite, scale: scale, frame: frame, canvas: canvas, outline: path)
+        }.value
+        guard let reference, let jpeg = ChatRenderer.jpeg(reference, quality: 0.92) else {
+            return ToolOutcome(text: "Could not render the area.", image: nil, status: .failed)
+        }
+
+        let data: Data
+        do {
+            data = try await generateData(prompt: ImageEdit.prompt(for: prompt, outlined: outline),
+                                          references: [jpeg], ratio: ratio, size: size)
+        } catch {
+            return ToolOutcome(text: "Image edit failed: \(error.localizedDescription)", image: nil, status: .failed)
+        }
+        guard let image = Self.decode(data) else {
+            return ToolOutcome(text: "The edited image could not be decoded.", image: nil, status: .failed)
+        }
+        let name = call.string("name").flatMap { $0.isEmpty ? nil : $0 } ?? "Edit: " + String(prompt.prefix(24))
+        let code = ImageEdit.placementScript(document: id, frame: frame, region: explicitRegion, name: name)
+        let result = await withCheckedContinuation { continuation in
+            runner.run(code: code, description: "Edit image: " + String(prompt.prefix(40)),
+                       images: ["generated": image]) { continuation.resume(returning: $0) }
+        }
+        var outcome = Self.outcome(for: result)
+        if outcome.status == .succeeded {
+            let f = "\(Int(frame.minX)), \(Int(frame.minY)) \(Int(frame.width))×\(Int(frame.height))"
+            outcome.text = "Edited the area (\(Int(region.width))×\(Int(region.height)) at \(Int(region.minX)), \(Int(region.minY)); model saw \(f) at \(ratio)) and placed the result as a new layer masked to it. "
+                + outcome.text + "\nThe edited crop is attached so you can check it."
+            outcome.image = ("image/jpeg", data)
         }
         outcome.displayImage = data
         return outcome
