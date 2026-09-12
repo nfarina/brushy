@@ -59,7 +59,7 @@ final class RasterizeTests: XCTestCase {
         XCTAssertFalse(store.document.layers[0].isPaintable)
     }
 
-    func testRasterizingAppliesAnEnabledMaskIntoThePixels() {
+    func testRasterizingKeepsTheMaskReframedOntoTheNewGrid() {
         let (store, um) = makeStore()
         store.featherAmount = 0
         um.beginUndoGrouping()
@@ -69,102 +69,95 @@ final class RasterizeTests: XCTestCase {
         um.beginUndoGrouping()
         store.addLayerMask() // reveals only the selection
         um.endUndoGrouping()
-        XCTAssertNotNil(store.document.layers[0].mask)
 
         um.beginUndoGrouping()
         store.rasterizeLayer(store.document.layers[0].id)
         um.endUndoGrouping()
 
-        XCTAssertNil(store.document.layers[0].mask, "the mask became alpha")
-        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 50, y: 50)).a, 250, "kept what it revealed")
-        XCTAssertEqual(pixel(store, at: CGPoint(x: 90, y: 90)).a, 0, "and what it hid is gone")
-
-        um.undo()
-        XCTAssertNotNil(store.document.layers[0].mask, "undo restores the mask")
+        XCTAssertNotNil(store.document.layers[0].mask, "the mask stays a mask")
+        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 50, y: 50)).a, 250,
+                             "and still reveals the same pixels")
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 90, y: 90)).a, 0, "and hides the same ones")
     }
 
-    func testPaintingAPhotoAsksToRasterizeAndThenPaints() {
+    func testPaintingAPhotoRasterizesItOnTheSpotAndPaints() {
         let (store, um) = makeStore()
         store.activeTool = .brush
         store.foregroundColor = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+        store.brushSize = 20
+        store.brushHardness = 100
+        store.brushOpacity = 100
 
-        store.beginBrushStroke(at: CGPoint(x: 50, y: 50), eraser: false)
-        let prompt = store.rasterizePrompt
-        XCTAssertNotNil(prompt, "painting a photo asks first")
-        XCTAssertEqual(prompt?.layerName, "Photo")
-        XCTAssertNil(store.strokePreview, "and paints nothing until answered")
-
-        um.beginUndoGrouping()
-        store.resolveRasterizePrompt(.rasterize)
-        um.endUndoGrouping()
-        XCTAssertTrue(store.document.layers[0].isPaintable)
-        XCTAssertNil(store.rasterizePrompt)
-
-        // Photoshop drops the click that raised the prompt; drawing again works.
         um.beginUndoGrouping()
         store.beginBrushStroke(at: CGPoint(x: 50, y: 50), eraser: false)
         store.continueBrushStroke(to: CGPoint(x: 60, y: 50))
         store.endBrushStroke()
         um.endUndoGrouping()
+
+        XCTAssertTrue(store.document.layers[0].isPaintable, "the click itself rasterized it")
         XCTAssertEqual(pixel(store, at: CGPoint(x: 55, y: 50)).r, 0, "blue paint, no red left")
+        XCTAssertNotNil(store.toast, "and it says so, without a dialog in the way")
+        XCTAssertTrue(store.toast?.message.contains("Rasterized") ?? false)
+
+        // Two steps: the rasterize, then the stroke.
+        um.undo()
+        XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 55, y: 50)).r, 200, "the paint came off")
+        um.undo()
+        XCTAssertFalse(store.document.layers[0].isPaintable, "and the photo is a photo again")
     }
 
-    func testFillOnAPhotoRunsItselfAgainAfterRasterizing() {
+    func testFillRasterizesAndFillsInOneGo() {
         let (store, um) = makeStore()
         store.foregroundColor = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
-        store.fillSelection()
-        XCTAssertNotNil(store.rasterizePrompt)
 
         um.beginUndoGrouping()
-        store.resolveRasterizePrompt(.rasterize)
+        store.fillSelection()
         um.endUndoGrouping()
 
         XCTAssertTrue(store.document.layers[0].isPaintable)
-        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).r, 0,
-                       "the fill it asked about went through")
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).r, 0, "the fill went through")
+        XCTAssertNotNil(store.toast)
     }
 
-    func testAddLayerMaskAnswerLeavesThePhotoIntact() {
-        let (store, um) = makeStore()
-        let sourceID = store.document.layers[0].sourceID
-        store.activeTool = .brush
-        store.beginBrushStroke(at: CGPoint(x: 50, y: 50), eraser: false)
-
-        um.beginUndoGrouping()
-        store.resolveRasterizePrompt(.addMask)
-        um.endUndoGrouping()
-
-        XCTAssertNotNil(store.document.layers[0].mask)
-        XCTAssertFalse(store.document.layers[0].isPaintable, "still a photo")
-        XCTAssertEqual(store.document.layers[0].sourceID, sourceID)
-    }
-
-    func testCancellingChangesNothing() {
-        let (store, _) = makeStore()
-        let before = store.document
-        let entries = store.historyEntries.count
-        store.activeTool = .brush
-        store.beginBrushStroke(at: CGPoint(x: 50, y: 50), eraser: false)
-
-        store.resolveRasterizePrompt(.cancel)
-
-        XCTAssertNil(store.rasterizePrompt)
-        XCTAssertEqual(store.historyEntries.count, entries)
-        XCTAssertEqual(store.document.layers[0].sourceID, before.layers[0].sourceID)
-        XCTAssertFalse(store.document.layers[0].isPaintable)
-    }
-
-    func testErasingAPhotoStillHidesThroughAMaskWithoutAsking() {
+    func testErasingAPhotoRasterizesItRatherThanHidingBehindAMask() {
         let (store, um) = makeStore()
         store.activeTool = .eraser
+        store.brushSize = 20
+        store.brushHardness = 100
+        store.brushOpacity = 100
+
         um.beginUndoGrouping()
         store.beginBrushStroke(at: CGPoint(x: 50, y: 50), eraser: true)
         store.continueBrushStroke(to: CGPoint(x: 60, y: 50))
         store.endBrushStroke()
         um.endUndoGrouping()
 
-        XCTAssertNil(store.rasterizePrompt, "erasing loses nothing, so it needn't ask")
-        XCTAssertNotNil(store.document.layers[0].mask)
-        XCTAssertFalse(store.document.layers[0].isPaintable)
+        XCTAssertTrue(store.document.layers[0].isPaintable)
+        XCTAssertNil(store.document.layers[0].mask, "no mask invented behind your back")
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 55, y: 50)).a, 0, "the pixels really went")
+        XCTAssertNotNil(store.toast)
+    }
+
+    func testAnExplicitlyTargetedMaskStillTakesThePaint() {
+        let (store, um) = makeStore()
+        um.beginUndoGrouping()
+        store.addLayerMask()
+        um.endUndoGrouping()
+        store.maskTargeted = true // what clicking the mask thumbnail does
+        store.activeTool = .brush
+        store.brushSize = 20
+        store.brushHardness = 100
+        store.brushOpacity = 100
+        let sourceID = store.document.layers[0].sourceID
+
+        um.beginUndoGrouping()
+        store.beginBrushStroke(at: CGPoint(x: 50, y: 50), eraser: false)
+        store.continueBrushStroke(to: CGPoint(x: 60, y: 50))
+        store.endBrushStroke()
+        um.endUndoGrouping()
+
+        XCTAssertFalse(store.document.layers[0].isPaintable, "the photo was left alone")
+        XCTAssertEqual(store.document.layers[0].sourceID, sourceID)
+        XCTAssertNil(store.toast, "nothing surprising happened, so nothing to announce")
     }
 }

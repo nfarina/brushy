@@ -213,20 +213,17 @@ final class GradientToolTests: XCTestCase {
         XCTAssertFalse(store.canUndo, "zero-length drags leave no history entry")
     }
 
-    func testGradientOnImportedLayerWithoutMaskAsksToRasterize() throws {
+    func testGradientOnImportedLayerRasterizesItThenRamps() throws {
         let store = makeImportedStore(withMask: false)
         let original = store.document.layers[0]
         store.applyGradient(from: CGPoint(x: 50, y: 100), to: CGPoint(x: 150, y: 100))
 
-        XCTAssertNotNil(store.rasterizePrompt, "the gradient asks before touching a photo")
-        XCTAssertFalse(store.canUndo, "and nothing lands until it is answered")
         let after = store.document.layers[0]
-        XCTAssertTrue(after.source === original.source,
-                      "imported pixels are never replaced")
-        XCTAssertEqual(after.sourceID, original.sourceID)
-        XCTAssertNil(after.mask, "the gradient never invents a mask to write into")
-        XCTAssertEqual(try rawRGBA8(after.source).rgba, try rawRGBA8(original.source).rgba,
-                       "the source stays byte-identical")
+        XCTAssertTrue(after.isPaintable, "the gradient rasterized the photo to run over it")
+        XCTAssertNotEqual(after.sourceID, original.sourceID)
+        XCTAssertNil(after.mask, "and wrote pixels rather than inventing a mask")
+        XCTAssertNotNil(store.toast, "a toast says so; ⌘Z steps back through both")
+        XCTAssertNotEqual(try rawRGBA8(after.source).rgba, try rawRGBA8(original.source).rgba)
     }
 
     // MARK: Pixel bakes (paint layers)

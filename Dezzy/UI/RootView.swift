@@ -25,6 +25,16 @@ struct RootView: View {
                 CanvasRepresentable(store: store)
                     .frame(minWidth: 480, maxWidth: .infinity,
                            minHeight: 320, maxHeight: .infinity)
+                    // Says what the app did on its own (rasterizing a layer so
+                    // an edit could land) without standing in the way.
+                    .overlay(alignment: .bottom) {
+                        if let toast = store.toast {
+                            ToastView(message: toast.message) { store.dismissToast() }
+                                .padding(.bottom, 20)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.18), value: store.toast)
                 Divider()
                 VStack(spacing: 0) {
                     Picker("", selection: $store.rightPanel) {
@@ -68,21 +78,6 @@ struct RootView: View {
         .sheet(item: $store.layerStyleRequested) { request in
             LayerStyleSheet(store: store, request: request)
         }
-        // Photoshop's rasterize prompt. "Add Layer Mask" is offered alongside
-        // it because on a photo that is usually the better answer here.
-        .alert("Rasterize “\(store.rasterizePrompt?.layerName ?? "")”?",
-               isPresented: Binding(
-                get: { store.rasterizePrompt != nil },
-                set: { if !$0 { store.resolveRasterizePrompt(.cancel) } }),
-               presenting: store.rasterizePrompt) { _ in
-            Button("Rasterize") { store.resolveRasterizePrompt(.rasterize) }
-            Button("Add Layer Mask") { store.resolveRasterizePrompt(.addMask) }
-            Button("Cancel", role: .cancel) { store.resolveRasterizePrompt(.cancel) }
-        } message: { prompt in
-            Text("“\(prompt.layerName)” is an imported image, so its pixels are never changed. "
-                 + "Rasterize it to \(prompt.intent) directly — its mask, if any, is applied into "
-                 + "the pixels — or add a layer mask to keep working non-destructively.")
-        }
         .alert("Dezzy", isPresented: Binding(
             get: { store.lastErrorMessage != nil },
             set: { if !$0 { store.lastErrorMessage = nil } })) {
@@ -90,6 +85,33 @@ struct RootView: View {
         } message: {
             Text(store.lastErrorMessage ?? "")
         }
+    }
+}
+
+/// The toast itself: what happened, and the reminder that ⌘Z undoes it.
+/// Click to dismiss; it fades on its own after a few seconds.
+private struct ToastView: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(message)
+                .font(.callout)
+                .lineLimit(1)
+            Text("⌘Z to undo")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        // A solid fill rather than a material: this floats over the Metal
+        // canvas, where vibrancy has nothing dependable to sample.
+        .background(Color(white: 0.13).opacity(0.94), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+        .onTapGesture(perform: dismiss)
     }
 }
 

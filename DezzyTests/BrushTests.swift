@@ -123,7 +123,7 @@ final class BrushTests: XCTestCase {
         XCTAssertLessThan(center.a, 4, "eraser must clear paint-layer alpha")
     }
 
-    func testEraserOnImportedLayerAutoCreatesMaskAsOneUndoStep() {
+    func testEraserOnImportedLayerRasterizesItRatherThanMasking() throws {
         let store = makeImportedStore()
         let undoManager = UndoManager()
         undoManager.groupsByEvent = false
@@ -138,26 +138,27 @@ final class BrushTests: XCTestCase {
         undoManager.endUndoGrouping()
 
         let layer = store.document.layers[0]
-        XCTAssertNotNil(layer.mask, "erasing an imported image adds a hide-mask")
-        XCTAssertTrue(store.maskTargeted)
-        let texture = layer.mask!.texture
-        XCTAssertLessThan(texture.data[(200 - 100) * 200 + 115], 10,
-                          "erased area must be hidden (black mask)")
-        XCTAssertEqual(texture.data[10], 255, "untouched area stays revealed")
-        XCTAssertEqual(undoManager.undoActionName, "Eraser Stroke")
+        XCTAssertTrue(layer.isPaintable, "the erase rasterized the photo")
+        XCTAssertNil(layer.mask, "and invented no mask behind the user's back")
+        XCTAssertNotNil(store.toast, "a toast says what happened")
+        let pixels = try rawRGBA8(layer.source, in: DezzyColorSpace.sRGB)
+        XCTAssertLessThan(pixels[115, 200 - 100].a, 10, "the pixels really went")
 
+        // The rasterize and the stroke are separate entries; this gesture put
+        // both in one group, so one undo takes the photo back.
         undoManager.undo()
-        XCTAssertNil(store.document.layers[0].mask,
-                     "one undo reverts the stroke AND the auto-created mask")
+        XCTAssertFalse(store.document.layers[0].isPaintable, "back to the untouched photo")
+        XCTAssertNil(store.document.layers[0].mask)
     }
 
-    func testBrushOnImportedLayerWithoutMaskAsksToRasterize() {
+    func testBrushOnImportedLayerRasterizesItAndPaints() {
         let store = makeImportedStore()
         store.activeTool = .brush
         store.beginBrushStroke(at: CGPoint(x: 100, y: 100), eraser: false)
-        XCTAssertNil(store.strokePreview)
-        XCTAssertNotNil(store.rasterizePrompt,
-                        "painting a photo offers the way out instead of refusing")
+        XCTAssertNotNil(store.strokePreview, "the stroke lands on this very click")
+        XCTAssertTrue(store.document.layers[0].isPaintable)
+        XCTAssertNotNil(store.toast,
+                        "painting a photo rasterizes it and says so, without a dialog")
         store.endBrushStroke()
         XCTAssertFalse((store.undoManager?.canUndo) ?? false)
     }

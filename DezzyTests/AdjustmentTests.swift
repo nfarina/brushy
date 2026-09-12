@@ -180,7 +180,7 @@ final class AdjustmentTests: XCTestCase {
         store.activeTool = .brush
         store.beginBrushStroke(at: CGPoint(x: 4, y: 4), eraser: false)
         XCTAssertNil(store.strokePreview)
-        XCTAssertNil(store.rasterizePrompt, "it offers no rasterize either")
+        XCTAssertNil(store.toast, "and it doesn't rasterize anything either")
         XCTAssertNotNil(store.brushHint)
         store.enterTransformMode()
         XCTAssertNil(store.transformSession, "⌘T has nothing to transform")

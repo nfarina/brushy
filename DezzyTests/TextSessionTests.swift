@@ -200,36 +200,52 @@ final class TextSessionTests: XCTestCase {
         store.cancelTextSession()
     }
 
-    // MARK: Placeholder (Photoshop-style "Lorem Ipsum" seeding)
+    // MARK: Placeholder seeding
 
-    func testCreateSessionSeedsPlaceholderAndDiscardsUntouchedCommit() {
+    func testCreateSessionSeedsPlaceholderAndCommitsItAsTyped() {
         let (store, um) = makeStore()
-        let before = store.document
+        let layersBefore = store.document.layers.count
 
         store.beginTextSession(creatingAt: CGPoint(x: 100, y: 250))
         XCTAssertEqual(store.textSession?.spec.text, DocumentStore.textPlaceholder,
                        "new sessions seed the placeholder so typing replaces it")
         XCTAssertNil(store.textSession?.caretHint, "nil hint ⇒ editor selects all")
 
+        um.beginUndoGrouping()
         store.commitTextSession()
-        XCTAssertEqual(store.document, before,
-                       "committing an untouched placeholder leaves no layer")
-        XCTAssertFalse(um.canUndo)
+        um.endUndoGrouping()
+        XCTAssertEqual(store.document.layers.count, layersBefore + 1,
+                       "accepting the placeholder makes the layer you can see — ⌘Z drops it")
+        XCTAssertEqual(store.document.layers.last?.kind.textSpec?.text,
+                       DocumentStore.textPlaceholder)
+        XCTAssertTrue(um.canUndo)
     }
 
-    func testStyleOnlyPlaceholderCommitDiscardsButKeepsDefaults() {
+    func testStyledPlaceholderCommitsAndKeepsTheDefaults() {
+        let (store, um) = makeStore()
+        let layersBefore = store.document.layers.count
+
+        store.beginTextSession(creatingAt: CGPoint(x: 100, y: 250))
+        store.updateTextSessionStyle { $0.fontSize = 90; $0.fontName = "Menlo" }
+        um.beginUndoGrouping()
+        store.commitTextSession()
+        um.endUndoGrouping()
+        XCTAssertEqual(store.document.layers.count, layersBefore + 1)
+        XCTAssertEqual(store.textStyle.fontSize, 90,
+                       "and the styling sticks as the creation default")
+        XCTAssertEqual(store.textStyle.fontName, "Menlo")
+    }
+
+    func testClearingThePlaceholderCommitsToNothing() {
         let (store, um) = makeStore()
         let before = store.document
 
         store.beginTextSession(creatingAt: CGPoint(x: 100, y: 250))
-        store.updateTextSessionStyle { $0.fontSize = 90; $0.fontName = "Menlo" }
+        store.updateTextSessionText("")
         store.commitTextSession()
-        XCTAssertEqual(store.document, before,
-                       "styling the placeholder without typing still commits to nothing")
+
+        XCTAssertEqual(store.document, before, "emptying the box is how you say no")
         XCTAssertFalse(um.canUndo)
-        XCTAssertEqual(store.textStyle.fontSize, 90,
-                       "…but the styling sticks as the creation default")
-        XCTAssertEqual(store.textStyle.fontName, "Menlo")
     }
 
     func testTypedPlaceholderReplacementCommitsNormally() {

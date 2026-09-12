@@ -172,7 +172,7 @@ final class ClipboardTests: XCTestCase {
 
     // MARK: Cut
 
-    func testCutOnImportedLayerIsNonDestructiveAndOneUndoStep() {
+    func testCutOnImportedLayerRasterizesItThenCuts() {
         let pb = uniquePasteboard()
         let store = makeStore()
         let undoManager = UndoManager()
@@ -182,26 +182,22 @@ final class ClipboardTests: XCTestCase {
 
         store.combineSelection(CGPath(rect: CGRect(x: 100, y: 60, width: 40, height: 80),
                                       transform: nil), mode: .replace)
-        let beforeCut = store.document
         store.cutSelection(to: pb)
 
         let layer = store.document.layers[0]
-        XCTAssertTrue(layer.source === originalSource,
-                      "Cut must not touch an imported layer's pixels")
-        XCTAssertEqual(layer.mask?.isEnabled, true, "Cut should auto-create a hide-mask")
-        let texture = layer.mask!.texture
-        // Selection covers layer-local x 0…39: black there, white elsewhere.
-        // Row 0 is the top of the buffer.
-        XCTAssertEqual(texture.data[0], 0)
-        XCTAssertEqual(texture.data[texture.width - 1], 255)
+        XCTAssertTrue(layer.isPaintable, "cutting from a photo rasterizes it")
+        XCTAssertFalse(layer.source === originalSource, "so the pixels really are cut")
+        XCTAssertNil(layer.mask, "no hide-mask invented in its place")
+        XCTAssertNotNil(store.toast)
         if case .layer = LayerPasteboard.read(from: pb) {} else {
             XCTFail("Cut did not write the layer flavour")
         }
-        // Exactly one history entry: a single undo restores the pre-cut state.
+        // Undo walks back through the cut and the rasterize it needed.
         XCTAssertTrue(store.canUndo)
         undoManager.undo()
-        XCTAssertEqual(store.document, beforeCut)
-        XCTAssertNil(store.document.layers[0].mask)
+        XCTAssertTrue(store.document.layers[0].source === originalSource,
+                      "the photo's own bytes come back")
+        XCTAssertFalse(store.document.layers[0].isPaintable)
     }
 
     func testCopyAndCutOutsideLayerBoundsAreNoOps() {

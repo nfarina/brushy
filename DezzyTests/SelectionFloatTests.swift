@@ -84,7 +84,7 @@ final class SelectionFloatTests: XCTestCase {
         XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 50, y: 50)).a, 250, "undo fills the hole")
     }
 
-    func testMovingASelectionOnAnImportedPhotoMasksItAndKeepsTheFloat() throws {
+    func testMovingASelectionOnAPhotoRasterizesItAndMovesThePixelsInPlace() throws {
         let (store, um) = makeStore(paintable: false)
         selectSquare(store)
         let photoSourceID = store.document.layers[0].sourceID
@@ -95,19 +95,18 @@ final class SelectionFloatTests: XCTestCase {
         store.landSelectionFloat()
         um.endUndoGrouping()
 
-        XCTAssertEqual(store.document.layers.count, 2, "the moved pixels stay a layer of their own")
-        let photo = store.document.layers[0]
-        XCTAssertEqual(photo.sourceID, photoSourceID, "a photo's pixels are never rewritten")
-        let texture = try XCTUnwrap(photo.mask).texture
-        // Mask rows are top-down; canvas (50,50) is source (30,30) on this layer.
-        XCTAssertEqual(texture.data[(texture.height - 1 - 30) * texture.width + 30], 0,
-                       "the hole is hidden by the mask, not cut out")
-        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).a, 0)
+        XCTAssertEqual(store.document.layers.count, 1,
+                       "no stray layer: the photo rasterized and its pixels moved")
+        XCTAssertTrue(store.document.layers[0].isPaintable)
+        XCTAssertNil(store.document.layers[0].mask, "and nothing was masked behind the user's back")
+        XCTAssertNotNil(store.toast, "the toast says the layer was rasterized")
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 50)).a, 0, "the hole is a real hole")
         XCTAssertGreaterThan(pixel(store, at: CGPoint(x: 110, y: 50)).a, 250)
 
         um.undo()
-        XCTAssertEqual(store.document.layers.count, 1)
-        XCTAssertNil(store.document.layers[0].mask, "undo takes the hide-mask away again")
+        XCTAssertEqual(store.document.layers[0].sourceID, photoSourceID,
+                       "undo brings the untouched photo back")
+        XCTAssertFalse(store.document.layers[0].isPaintable)
     }
 
     func testOptionDragDuplicatesTheSelectedPixelsInsteadOfMovingThem() throws {

@@ -113,12 +113,12 @@ final class LayerOpsTests: XCTestCase {
         XCTAssertGreaterThan(pixels[150, 20].a, 250)
     }
 
-    func testFillOnImportedLayerWithoutMaskAsksToRasterize() {
+    func testFillOnImportedLayerRasterizesItThenFills() {
         let store = makeStore()
         store.selectLayer(store.document.layers[0].id)
-        XCTAssertFalse(store.canFillSelection)
+        XCTAssertFalse(store.canFillSelection, "not until it has pixels of its own")
         store.fillSelection()
-        XCTAssertNotNil(store.rasterizePrompt)
-        XCTAssertFalse(store.canUndo, "nothing lands until it is answered")
+        XCTAssertTrue(store.document.layers[0].isPaintable, "the fill rasterized it and went through")
+        XCTAssertNotNil(store.toast)
     }
 }
