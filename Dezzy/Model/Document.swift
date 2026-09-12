@@ -380,6 +380,7 @@ struct MaskTexture: Equatable {
             cachedImage = image
             return image
         }
+
     }
 
     private var storage: Storage

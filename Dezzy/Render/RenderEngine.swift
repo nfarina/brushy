@@ -60,6 +60,8 @@ final class RenderEngine {
     private let cacheLock = NSLock()
     private var sourceCache: [ObjectIdentifier: CIImage] = [:]
     private var maskCache: [UUID: CIImage] = [:]
+    /// See `quickMaskTint(_:)` — one entry, replaced as the channel changes.
+    private var quickMaskTintCache: (identity: UUID, image: CIImage)?
 
     /// Keyed on the CGImage's address, unlike the mask cache below — safe
     /// here only because the cached `CIImage` retains the `CGImage`, so a key
@@ -87,6 +89,43 @@ final class RenderEngine {
                             colorSpace: nil)
         maskCache[key] = image
         return image
+    }
+
+    /// Photoshop's rubylith for the Quick Mask channel: premultiplied red at
+    /// 50% × (1 − coverage) in canvas space, so it is red where the channel
+    /// does not select and clear where it does.
+    ///
+    /// Its own one-entry cache, deliberately NOT `maskCache`: painting
+    /// replaces the channel on every mouse event, and the shared cache would
+    /// hold a canvas-sized copy of every frame of the stroke until the next
+    /// commit pruned them.
+    func quickMaskTint(_ texture: MaskTexture) -> CIImage {
+        cacheLock.lock()
+        if let cached = quickMaskTintCache, cached.identity == texture.storageIdentity {
+            cacheLock.unlock()
+            return cached.image
+        }
+        cacheLock.unlock()
+        let mask = CIImage(bitmapData: texture.data,
+                           bytesPerRow: texture.width,
+                           size: CGSize(width: texture.width, height: texture.height),
+                           format: .L8, colorSpace: nil)
+        // Full red, alpha 0.5 × (1 − coverage). The colour stays 1.0 rather
+        // than being scaled by the alpha: CIColorMatrix's output is taken as
+        // unpremultiplied and premultiplied again downstream, so pre-scaling it
+        // here darkens the tint (it read 232 instead of 255 over white).
+        let zero = CIVector(x: 0, y: 0, z: 0, w: 0)
+        let tint = mask.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": zero,
+            "inputGVector": zero,
+            "inputBVector": zero,
+            "inputAVector": CIVector(x: -0.5, y: 0, z: 0, w: 0),
+            "inputBiasVector": CIVector(x: 1, y: 0, z: 0, w: 0.5),
+        ])
+        cacheLock.lock()
+        quickMaskTintCache = (texture.storageIdentity, tint)
+        cacheLock.unlock()
+        return tint
     }
 
     func pruneCaches(for document: Document) {
@@ -690,9 +729,12 @@ final class RenderEngine {
     struct DisplayStyle {
         var surroundColor = CIColor(red: 0.145, green: 0.145, blue: 0.145,
                                     alpha: 1, colorSpace: DezzyColorSpace.sRGB)!
-        var checkerColorA = CIColor(red: 0.78, green: 0.78, blue: 0.78,
+        // Photoshop's "Light" transparency grid, near enough: bright, low
+        // contrast, and — the reason it is this light — enough of a value gap
+        // from the black half of the marching ants to see them on it.
+        var checkerColorA = CIColor(red: 0.96, green: 0.96, blue: 0.96,
                                     alpha: 1, colorSpace: DezzyColorSpace.sRGB)!
-        var checkerColorB = CIColor(red: 0.62, green: 0.62, blue: 0.62,
+        var checkerColorB = CIColor(red: 0.82, green: 0.82, blue: 0.82,
                                     alpha: 1, colorSpace: DezzyColorSpace.sRGB)!
         var checkerSquare: CGFloat = 8
     }
@@ -720,12 +762,13 @@ final class RenderEngine {
                       contentScale: CGFloat,
                       stroke: StrokePreview? = nil,
                       excludingLayer: UUID? = nil,
+                      quickMask: MaskTexture? = nil,
                       style: DisplayStyle = DisplayStyle()) -> CIImage {
         let viewTransform = DisplayGeometry.pixelAligned(requestedTransform,
                                                          canvasSize: document.canvasSize)
         let canvasScreenRect = document.canvasRect.applying(viewTransform)
         let (sx, sy) = viewTransform.scaleComponents
-        let composite: CIImage
+        var composite: CIImage
         var checkerRect = canvasScreenRect
         if min(sx, sy) > 1, viewTransform.isInvertible {
             // Only the visible canvas region (plus a pixel of sampler slack)
@@ -757,6 +800,19 @@ final class RenderEngine {
             // pixel. Ending the checkerboard one device pixel short lets that
             // soft edge fade into the surround instead of flashing the checker.
             checkerRect = canvasScreenRect.insetBy(dx: 1, dy: 1)
+        }
+
+        // Quick Mask rides above the composite and below the checkerboard, so
+        // a masked-but-transparent area reads as red over the board — the same
+        // place Photoshop puts it. Nearest-sampled like the composite, so the
+        // channel's pixels stay square when magnified.
+        if let quickMask {
+            composite = quickMaskTint(quickMask)
+                .cropped(to: document.canvasRect)
+                .samplingNearest()
+                .transformed(by: viewTransform)
+                .cropped(to: canvasScreenRect)
+                .composited(over: composite)
         }
 
         var checker = CIImage.empty()

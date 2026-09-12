@@ -75,7 +75,7 @@ final class DefaultsTests: XCTestCase {
         roundTrip(K.brushHardness, 12)
         roundTrip(K.brushOpacity, 33)
         roundTrip(K.eyedropperSampleSize, 5)
-        roundTrip(K.autoSelectLayer, false)
+        roundTrip(K.autoSelectLayer, true) // the fallback is off, so probe with on
         roundTrip(K.featherAmount, 4.25)
         roundTrip(K.textStyle, TextSpec(text: "T", fontName: "Menlo", fontSize: 21,
                                         color: ColorSpec(r: 0, g: 0.5, b: 1)))
@@ -193,12 +193,25 @@ final class DefaultsTests: XCTestCase {
         return document
     }
 
+    /// Auto-Select is a SEED-ONLY setting, but the options-bar checkbox is
+    /// where it is actually changed — so it writes back, and the next window
+    /// opens the way the last one was left.
+    func testAutoSelectChoicePersistsForTheNextWindow() {
+        let store = DocumentStore(document: makeDocument())
+        XCTAssertFalse(store.autoSelectLayer, "off by default, like Photoshop's")
+
+        store.autoSelectLayer = true
+
+        XCTAssertTrue(Defaults.value(Defaults.Keys.autoSelectLayer))
+        XCTAssertTrue(DocumentStore(document: makeDocument()).autoSelectLayer)
+    }
+
     func testNewStoreSeedsToolDefaults() {
         Defaults.set(23.0, for: Defaults.Keys.brushSize)
         Defaults.set(88.0, for: Defaults.Keys.brushHardness)
         Defaults.set(44.0, for: Defaults.Keys.brushOpacity)
         Defaults.set(5, for: Defaults.Keys.eyedropperSampleSize)
-        Defaults.set(false, for: Defaults.Keys.autoSelectLayer)
+        Defaults.set(true, for: Defaults.Keys.autoSelectLayer)
         Defaults.set(6.5, for: Defaults.Keys.featherAmount)
         Defaults.set(TextSpec(text: "Text", fontName: "Menlo", fontSize: 30, color: .black),
                      for: Defaults.Keys.textStyle)
@@ -210,7 +223,7 @@ final class DefaultsTests: XCTestCase {
         XCTAssertEqual(store.brushHardness, 88)
         XCTAssertEqual(store.brushOpacity, 44)
         XCTAssertEqual(store.eyedropperSampleSize, 5)
-        XCTAssertFalse(store.autoSelectLayer)
+        XCTAssertTrue(store.autoSelectLayer)
         XCTAssertEqual(store.featherAmount, 6.5)
         XCTAssertEqual(store.textStyle.fontName, "Menlo")
         XCTAssertEqual(store.shapeStyle.strokeWidth, 7)

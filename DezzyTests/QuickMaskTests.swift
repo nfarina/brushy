@@ -157,21 +157,70 @@ final class QuickMaskTests: XCTestCase {
 
     // MARK: - Staying out of the way
 
-    func testSelectionToolsAreInertWhileTheMaskIsUp() {
+    /// A selection made inside Quick Mask is a stencil for painting the
+    /// channel, exactly as it is for painting a layer.
+    func testASelectionInsideQuickMaskLimitsWhereTheBrushLands() throws {
         let (store, um) = makeStore()
         group(um) { store.enterQuickMask() }
+        group(um) {
+            store.combineSelection(CGPath(rect: CGRect(x: 0, y: 0, width: 20, height: 30),
+                                          transform: nil), mode: .replace)
+        }
+        XCTAssertFalse(store.selection.isEmpty, "selecting still works with the mask up")
+
+        store.brushSize = 40
+        store.brushHardness = 100
+        store.brushOpacity = 100
+        store.foregroundColor = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
+        group(um) {
+            store.beginBrushStroke(at: CGPoint(x: 10, y: 15), eraser: false)
+            store.continueBrushStroke(to: CGPoint(x: 34, y: 15))
+            store.endBrushStroke()
+        }
+
+        let texture = try XCTUnwrap(store.quickMask)
+        XCTAssertEqual(maskValue(texture, at: CGPoint(x: 8, y: 15)), 0, "masked inside the selection")
+        XCTAssertEqual(maskValue(texture, at: CGPoint(x: 30, y: 15)), 255,
+                       "and untouched outside it")
+    }
+
+    func testFillingInsideQuickMaskRespectsTheSelection() throws {
+        let (store, um) = makeStore()
+        group(um) { store.enterQuickMask() }
+        group(um) {
+            store.combineSelection(CGPath(rect: CGRect(x: 0, y: 0, width: 20, height: 30),
+                                          transform: nil), mode: .replace)
+        }
+        group(um) { store.fillSelection(using: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)) }
+
+        let texture = try XCTUnwrap(store.quickMask)
+        XCTAssertEqual(maskValue(texture, at: CGPoint(x: 5, y: 15)), 0)
+        XCTAssertEqual(maskValue(texture, at: CGPoint(x: 35, y: 15)), 255)
+    }
+
+    /// The commands that would take pixels out of the document or resize the
+    /// canvas under a canvas-sized channel stay out of the way, with a hint.
+    func testPixelCommandsAreInertWhileTheMaskIsUp() {
+        let (store, um) = makeStore()
+        group(um) { store.enterQuickMask() }
+        group(um) {
+            store.combineSelection(CGPath(rect: CGRect(x: 10, y: 10, width: 10, height: 10),
+                                          transform: nil), mode: .replace)
+        }
         let entries = store.historyEntries.count
+        let layers = store.document.layers.count
 
-        store.combineSelection(CGPath(rect: CGRect(x: 0, y: 0, width: 5, height: 5), transform: nil),
-                               mode: .replace)
-        store.deselect()
+        store.layerViaCopy()
+        store.cropToSelection()
+        XCTAssertNil(store.beginSelectionFloat(), "and Move lifts nothing out from under it")
 
-        XCTAssertTrue(store.selection.isEmpty)
+        XCTAssertEqual(store.document.layers.count, layers)
+        XCTAssertEqual(store.document.canvasSize, canvas)
         XCTAssertEqual(store.historyEntries.count, entries, "and no history churn either")
         XCTAssertNotNil(store.brushHint, "with a hint saying why")
     }
 
-    func testInverseInvertsTheChannel() throws {
+    func testInverseInvertsTheChannelWhenNothingIsSelected() throws {
         let (store, um) = makeStore()
         group(um) {
             store.combineSelection(CGPath(rect: CGRect(x: 10, y: 10, width: 20, height: 10),
@@ -183,5 +232,49 @@ final class QuickMaskTests: XCTestCase {
         let texture = try XCTUnwrap(store.quickMask)
         XCTAssertEqual(maskValue(texture, at: CGPoint(x: 15, y: 15)), 0)
         XCTAssertEqual(maskValue(texture, at: CGPoint(x: 35, y: 25)), 255)
+    }
+
+
+    // MARK: - The rubylith
+
+    /// The red overlay is composited with the canvas (GPU), not painted over it
+    /// by the overlay view — so it is checked where it lands: in the displayed
+    /// image. Polarity is the thing to pin: red where the channel does NOT
+    /// select, nothing where it does.
+    func testTheChannelShowsAsRedWhereItDoesNotSelect() {
+        var document = Document(canvasSize: CGSize(width: 4, height: 1))
+        document.layers = [Layer(name: "White",
+                                 source: GeneratedImages.solid(width: 4, height: 1,
+                                                               r: 255, g: 255, b: 255,
+                                                               colorSpace: DezzyColorSpace.sRGB),
+                                 isPaintable: true)]
+        var channel = MaskTexture(width: 4, height: 1, fill: 255)
+        channel.mutate { data in data[3] = 0 } // the last pixel is masked
+
+        let bounds = CGRect(x: 0, y: 0, width: 4, height: 1)
+        let image = RenderEngine.shared.displayImage(for: document,
+                                                     viewTransform: .identity,
+                                                     viewPixelBounds: bounds,
+                                                     contentScale: 1,
+                                                     quickMask: channel)
+        let selected = pixel(image, bounds: bounds, x: 0)
+        let masked = pixel(image, bounds: bounds, x: 3)
+
+        XCTAssertEqual(Int(selected.g), 255, "a selected pixel is left alone")
+        XCTAssertEqual(Int(selected.b), 255)
+        XCTAssertEqual(Int(masked.r), 255, "a masked one goes red")
+        XCTAssertLessThan(Int(masked.g), 230, "and loses green and blue to it")
+        XCTAssertLessThan(Int(masked.b), 230)
+    }
+
+    private func pixel(_ image: CIImage, bounds: CGRect, x: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
+        let cg = RenderEngine.shared.context.createCGImage(image, from: bounds, format: .RGBA8,
+                                                           colorSpace: DezzyColorSpace.sRGB)!
+        let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8,
+                            bytesPerRow: cg.width * 4, space: DezzyColorSpace.sRGB,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        return (data[x * 4], data[x * 4 + 1], data[x * 4 + 2])
     }
 }

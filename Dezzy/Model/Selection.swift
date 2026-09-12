@@ -82,7 +82,12 @@ struct SelectionState: Equatable {
             let rect = canvasRect.integral
             var texture = coverageTexture(over: rect)
             texture.mutate { data in
-                for index in data.indices { data[index] = 255 &- data[index] }
+                data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+                    guard let bytes = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                        return
+                    }
+                    for index in 0..<raw.count { bytes[index] = 255 &- bytes[index] }
+                }
             }
             return .coverage(texture, rect: rect)
         }

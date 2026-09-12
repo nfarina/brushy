@@ -45,7 +45,8 @@ final class CanvasMetalView: MTKView {
                                                      viewPixelBounds: bounds,
                                                      contentScale: scale,
                                                      stroke: store.strokePreview,
-                                                     excludingLayer: store.textSession?.layerID)
+                                                     excludingLayer: store.textSession?.layerID,
+                                                     quickMask: store.quickMask)
         guard let commandBuffer = queue.makeCommandBuffer() else { return }
         let destination = CIRenderDestination(mtlTexture: drawable.texture,
                                               commandBuffer: commandBuffer)

@@ -494,7 +494,8 @@ enum DebugSnapshot {
                                                          viewPixelBounds: pixelBounds,
                                                          contentScale: scale,
                                                          stroke: store.strokePreview,
-                                                         excludingLayer: store.textSession?.layerID)
+                                                         excludingLayer: store.textSession?.layerID,
+                                                         quickMask: store.quickMask)
             if let cgImage = RenderEngine.shared.context.createCGImage(
                 image, from: pixelBounds, format: .RGBA8,
                 colorSpace: DezzyColorSpace.sRGB),

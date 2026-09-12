@@ -209,8 +209,10 @@ extension Defaults {
         /// SEED-ONLY — box edge in canvas px: 1 = point sample, 3 = 3×3, 5 = 5×5.
         static let eyedropperSampleSize = DefaultsKey("tools.eyedropperSampleSize",
                                                       default: 1, domain: .tools)
-        /// SEED-ONLY — Move tool Auto-Select.
-        static let autoSelectLayer = DefaultsKey("tools.autoSelectLayer", default: true, domain: .tools)
+        /// SEED-ONLY — Move tool Auto-Select. Off by default, like
+        /// Photoshop's: a click that silently retargets the layer is a
+        /// surprise until you ask for it.
+        static let autoSelectLayer = DefaultsKey("tools.autoSelectLayer", default: false, domain: .tools)
         /// SEED-ONLY — feather field, canvas px.
         static let featherAmount = DefaultsKey("tools.featherAmount", default: 0.0, domain: .tools)
         /// SEED-ONLY — style applied to the next created text layer.

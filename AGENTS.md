@@ -98,7 +98,9 @@ pixels — Quick Mask, or ⌘-clicking a layer to load its alpha. **When `alpha`
 is present it IS the coverage and the path is only its traced 50% contour**;
 never multiply the two, or the outer half of every soft edge disappears.
 Read coverage through `MaskFactory` / `SelectionState.coverageTexture(over:)`
-rather than rasterising the path yourself. Anything that reshapes the path
+rather than rasterising the path yourself. A selection is also a stencil for
+PAINT: strokes multiply by it at emission (`BrushStroke.selectionClip`), the
+same way fills and gradients clip to it. Anything that reshapes the path
 (booleans, Select ▸ Modify, a Transform Selection that is not a whole-pixel
 translation) drops the channel; `DocumentStore.commitSelection(_:_:)` is what
 tells the user it did.

@@ -38,19 +38,34 @@ struct BrushStroke {
     let hardness: Double
     let targetWidth: Int
     let targetHeight: Int
+    /// The active selection as coverage over the target's own grid, row 0 =
+    /// top — a selection is a mask, so paint lands only inside it (Photoshop).
+    /// nil when nothing is selected, which is the common case and skips the
+    /// multiply entirely.
+    ///
+    /// Applied at EMISSION, not while stamping: stamp coverage accumulates
+    /// multiplicatively (`c' = 1 − (1−c)(1−a)`), so scaling each stamp by the
+    /// clip would still creep to full strength wherever strokes overlap.
+    let selectionClip: [UInt8]?
 
     /// Accumulated stamp coverage (0…255), row 0 = top.
     private(set) var coverage: [UInt8]
     /// Dirty bounds in buffer coordinates (rows from top), inclusive.
     private(set) var dirtyMin: (col: Int, row: Int)? = nil
     private(set) var dirtyMax: (col: Int, row: Int)? = nil
+    /// Dirty since the last `pendingPreview()` — the pixels whose coverage has
+    /// actually changed since the last live update, which is all a live update
+    /// has to redo. Without this, every mouse event re-emits the whole stroke
+    /// so far, and the cost of painting grows with the length of the stroke.
+    private var pendingMin: (col: Int, row: Int)? = nil
+    private var pendingMax: (col: Int, row: Int)? = nil
 
     private var lastPoint: CGPoint?
     private var residualDistance: CGFloat = 0
 
     init(target: Target, isEraser: Bool, color: CGColor, maskValue: UInt8,
          opacityCeiling: Double, radius: CGFloat, hardness: Double,
-         targetWidth: Int, targetHeight: Int) {
+         targetWidth: Int, targetHeight: Int, selectionClip: [UInt8]? = nil) {
         self.target = target
         self.isEraser = isEraser
         self.color = color
@@ -60,6 +75,7 @@ struct BrushStroke {
         self.hardness = min(max(hardness, 0), 1)
         self.targetWidth = targetWidth
         self.targetHeight = targetHeight
+        self.selectionClip = selectionClip?.count == targetWidth * targetHeight ? selectionClip : nil
         coverage = [UInt8](repeating: 0, count: targetWidth * targetHeight)
     }
 
@@ -144,6 +160,8 @@ struct BrushStroke {
         }
         dirtyMin = (min(dirtyMin?.col ?? minCol, minCol), min(dirtyMin?.row ?? minRow, minRow))
         dirtyMax = (max(dirtyMax?.col ?? maxCol, maxCol), max(dirtyMax?.row ?? maxRow, maxRow))
+        pendingMin = (min(pendingMin?.col ?? minCol, minCol), min(pendingMin?.row ?? minRow, minRow))
+        pendingMax = (max(pendingMax?.col ?? maxCol, maxCol), max(pendingMax?.row ?? maxRow, maxRow))
     }
 
     // MARK: - Emission
@@ -152,6 +170,14 @@ struct BrushStroke {
     /// plus its origin in the target's y-up space. Shared by preview and bake.
     func coverageImage() -> (image: CGImage, originYUp: CGPoint)? {
         guard let dirtyMin, let dirtyMax else { return nil }
+        return coverageImage(from: dirtyMin, to: dirtyMax)
+    }
+
+    /// The same emission over an explicit region — the whole stroke for a
+    /// preview or a bake, just what changed for a live Quick Mask update.
+    private func coverageImage(from dirtyMin: (col: Int, row: Int),
+                               to dirtyMax: (col: Int, row: Int))
+        -> (image: CGImage, originYUp: CGPoint)? {
         let width = dirtyMax.col - dirtyMin.col + 1
         let height = dirtyMax.row - dirtyMin.row + 1
         // Rebuilt per preview over the whole dirty region (megapixels for a
@@ -180,6 +206,23 @@ struct BrushStroke {
                     guard let tableBase = table.baseAddress else { return }
                     _ = vImageTableLookUp_Planar8(&srcBuf, &dstBuf, tableBase,
                                                   vImage_Flags(kvImageNoFlags))
+                }
+            }
+            guard let selectionClip else { return }
+            // Multiply the emitted coverage by the selection's, over the dirty
+            // rect only. `(a * b + 127) / 255` is the usual rounded 8-bit
+            // product — exact at both ends, so a fully selected pixel keeps
+            // every bit of its coverage.
+            selectionClip.withUnsafeBufferPointer { clip in
+                guard let clipBase = clip.baseAddress else { return }
+                let out = dst.assumingMemoryBound(to: UInt8.self)
+                for row in 0..<height {
+                    let clipRow = clipBase + (dirtyMin.row + row) * targetWidth + dirtyMin.col
+                    let outRow = out + row * width
+                    for col in 0..<width {
+                        let product = Int(outRow[col]) * Int(clipRow[col])
+                        outRow[col] = UInt8((product + 127) / 255)
+                    }
                 }
             }
         }
@@ -212,19 +255,101 @@ struct StrokePreview {
     var isEraser: Bool
 }
 
+extension StrokePreview {
+    /// The stroke composited into a mask channel on the CPU, over its dirty
+    /// rect only: `out = old + (maskValue − old) × coverage`.
+    ///
+    /// The Quick Mask uses this for both the live update and the commit, so
+    /// what is painted is exactly what lands. It exists because the Core Image
+    /// path (`RenderEngine.bakeMaskStroke`) rebuilds a CGImage of the whole
+    /// canvas-sized channel and renders the whole of it through a filter graph
+    /// — fine once per stroke on a layer mask, far too slow at 120 Hz, which is
+    /// what made painting the Quick Mask crawl.
+    /// `live` is what gets written (and returned); `base` is what the blend
+    /// reads — the channel as it was before the stroke began. They differ for
+    /// an incremental update, where `live` already holds earlier parts of this
+    /// same stroke.
+    func applied(to live: MaskTexture, from base: MaskTexture? = nil) -> MaskTexture {
+        let texture = live
+        let source = base ?? live
+        guard source.width == texture.width, source.height == texture.height,
+              coverageImage.bitsPerPixel == 8,
+              let coverage = coverageImage.dataProvider?.data as Data? else { return texture }
+        let width = coverageImage.width, height = coverageImage.height
+        let stride = coverageImage.bytesPerRow
+        let firstColumn = Int(originYUp.x.rounded())
+        // `originYUp` is the dirty rect's BOTTOM-left in y-up target space;
+        // buffer row 0 is the top.
+        let firstRow = texture.height - Int(originYUp.y.rounded()) - height
+        guard firstColumn >= 0, firstRow >= 0,
+              firstColumn + width <= texture.width,
+              firstRow + height <= texture.height,
+              coverage.count >= stride * height else { return texture }
+
+        let target = Int(maskValue)
+        let targetWidth = texture.width
+        let baseData = source.data
+        var result = texture
+        result.mutate { data in
+            data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+                guard let destination = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return
+                }
+                coverage.withUnsafeBytes { (coverageRaw: UnsafeRawBufferPointer) in
+                    baseData.withUnsafeBytes { (baseRaw: UnsafeRawBufferPointer) in
+                        guard let alphas = coverageRaw.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                              let unpainted = baseRaw.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                        else { return }
+                        for row in 0..<height {
+                            let alphaRow = alphas + row * stride
+                            let offset = (firstRow + row) * targetWidth + firstColumn
+                            for column in 0..<width {
+                                let alpha = Int(alphaRow[column])
+                                if alpha == 0 { continue }
+                                let old = Int(unpainted[offset + column])
+                                destination[offset + column] =
+                                    UInt8((old * (255 - alpha) + target * alpha + 127) / 255)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+}
+
 extension BrushStroke {
     /// Stands in for `layerID` in a Quick Mask preview, which never reaches the
     /// renderer's per-layer preview path — the store bakes it straight into the
     /// channel.
     static let noLayerID = UUID()
 
+    /// Coverage over just what has changed since the last call, and clears
+    /// that region. Its composite must blend from the PRE-STROKE channel, never
+    /// from the live one: a stamp overlapping an already-painted area carries
+    /// the full accumulated coverage for those pixels, so blending it over the
+    /// live value would apply the stroke there twice.
+    mutating func pendingPreview() -> StrokePreview? {
+        guard let low = pendingMin, let high = pendingMax else { return nil }
+        pendingMin = nil
+        pendingMax = nil
+        guard let (image, origin) = coverageImage(from: low, to: high) else { return nil }
+        return preview(image: image, originYUp: origin)
+    }
+
     func preview() -> StrokePreview? {
         guard let (image, origin) = coverageImage() else { return nil }
+        return preview(image: image, originYUp: origin)
+    }
+
+    private func preview(image: CGImage, originYUp origin: CGPoint) -> StrokePreview? {
         let targetsMask: Bool
         switch target {
         case .mask, .quickMask: targetsMask = true
         case .paintLayer: targetsMask = false
         }
+
         return StrokePreview(layerID: layerID ?? Self.noLayerID,
                              targetsMask: targetsMask,
                              coverageImage: image,

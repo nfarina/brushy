@@ -53,13 +53,6 @@ final class CanvasOverlayView: NSView {
         if store.gridVisible { drawGrid(viewport: viewport) }
         if store.guidesVisible { drawUserGuides(viewport: viewport) }
 
-        // Quick Mask paints over the composite, under everything else: the
-        // channel is what the user is working on, so it reads as ink on the
-        // image rather than as another piece of chrome.
-        if let texture = store.quickMask {
-            drawQuickMask(texture, viewport: viewport)
-        }
-
         if let session = store.selectionTransformSession {
             // Live Transform Selection preview: the ants follow the session's
             // transformed outline; the committed selection is hidden until
@@ -172,44 +165,6 @@ final class CanvasOverlayView: NSView {
         NSColor.white.setStroke()
         ring.lineWidth = 1
         ring.stroke()
-    }
-
-    // MARK: Quick Mask
-
-    /// The inverted channel as a clip mask, keyed by the bytes it was built
-    /// from — every brush event replaces the texture, and inverting a
-    /// canvas-sized buffer on each of the several redraws per stroke would
-    /// cost more than the stroke itself.
-    private var quickMaskCache: (identity: UUID, image: CGImage)?
-
-    /// Photoshop's rubylith: 50% red over everything the channel does not
-    /// select. Drawn by clipping to the INVERSE of the channel — the mask's
-    /// own values are coverage for the clip, so inverting them turns "selected"
-    /// into "painted red".
-    private func drawQuickMask(_ texture: MaskTexture, viewport: Viewport) {
-        guard let ctx = NSGraphicsContext.current?.cgContext,
-              let mask = invertedMaskImage(texture) else { return }
-        let rect = CGRect(x: 0, y: 0, width: texture.width, height: texture.height)
-            .applying(viewport.viewTransform)
-        ctx.saveGState()
-        ctx.interpolationQuality = .none
-        ctx.clip(to: rect, mask: mask)
-        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 0.5))
-        ctx.fill(rect)
-        ctx.restoreGState()
-    }
-
-    private func invertedMaskImage(_ texture: MaskTexture) -> CGImage? {
-        if let cache = quickMaskCache, cache.identity == texture.storageIdentity {
-            return cache.image
-        }
-        var inverted = texture
-        inverted.mutate { data in
-            for index in data.indices { data[index] = 255 &- data[index] }
-        }
-        guard let image = inverted.cgImage else { return nil }
-        quickMaskCache = (texture.storageIdentity, image)
-        return image
     }
 
     // MARK: Marching ants

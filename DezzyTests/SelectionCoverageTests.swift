@@ -217,4 +217,65 @@ final class SelectionCoverageTests: XCTestCase {
                        "the channel shifts with the content instead of being thrown away")
         XCTAssertTrue(store.selection.hasAlpha)
     }
+
+    // MARK: - A selection is a mask for painting too
+
+    func testPaintingIsClippedToTheSelection() {
+        let (store, um) = makeStore()
+        group(um) {
+            store.combineSelection(CGPath(rect: CGRect(x: 0, y: 0, width: 20, height: 30),
+                                          transform: nil), mode: .replace)
+        }
+        store.activeTool = .brush
+        store.brushSize = 30
+        store.brushHardness = 100
+        store.brushOpacity = 100
+        store.foregroundColor = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+
+        // A stroke straight across the boundary at x = 20.
+        group(um) {
+            store.beginBrushStroke(at: CGPoint(x: 10, y: 15), eraser: false)
+            store.continueBrushStroke(to: CGPoint(x: 34, y: 15))
+            store.endBrushStroke()
+        }
+
+        XCTAssertEqual(Int(pixel(store, at: CGPoint(x: 8, y: 15)).r), 0,
+                       "inside the selection the blue lands")
+        XCTAssertEqual(Int(pixel(store, at: CGPoint(x: 30, y: 15)).r), 255,
+                       "outside it the white layer is untouched")
+    }
+
+    func testPaintingThroughASoftSelectionLandsAtItsStrength() {
+        let (store, um) = makeStore()
+        selectSoftly(store, um, value: 128)
+        store.brushSize = 30
+        store.brushHardness = 100
+        store.brushOpacity = 100
+        store.foregroundColor = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
+
+        group(um) {
+            store.beginBrushStroke(at: CGPoint(x: 20, y: 15), eraser: false)
+            store.endBrushStroke()
+        }
+
+        // Paint composites in LINEAR light, so half coverage of black over
+        // white reads as sRGB ~188, not 128 — the point is that it is neither
+        // white (clip ignored) nor black (clip ignored the other way).
+        let value = Int(pixel(store, at: CGPoint(x: 20, y: 15)).r)
+        XCTAssertTrue((150...215).contains(value),
+                      "a half-selected pixel takes half the paint, got \(value)")
+    }
+
+    func testWithNoSelectionPaintingIsUnclipped() {
+        let (store, um) = makeStore()
+        store.brushSize = 30
+        store.brushHardness = 100
+        store.brushOpacity = 100
+        store.foregroundColor = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+        group(um) {
+            store.beginBrushStroke(at: CGPoint(x: 20, y: 15), eraser: false)
+            store.endBrushStroke()
+        }
+        XCTAssertEqual(Int(pixel(store, at: CGPoint(x: 20, y: 15)).r), 0)
+    }
 }

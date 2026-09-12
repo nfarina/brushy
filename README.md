@@ -116,7 +116,8 @@ Implementation choices worth knowing:
   undo step per stroke. The brush paints masks (black hides / white reveals)
   and paint layers (Layer → New Paint Layer, ⇧⌘N); imported sources are never
   painted — the eraser on a photo auto-creates a hide-mask instead, keeping
-  even erasing non-destructive.
+  even erasing non-destructive. An active selection is a stencil: paint lands
+  inside it and nowhere else, at its strength where it is soft.
 - Text edits in place on the canvas: T-click seeds a
   fully-selected "Lorem Ipsum" placeholder so typing replaces it (committing
   it untouched leaves no layer — a deliberate deviation from convention), and a
@@ -162,8 +163,10 @@ Implementation choices worth knowing:
   brush, filled and gradient-faded like any mask, and undone stroke by stroke.
   Leaving traces it back at 50% — and keeps the channel as the selection's
   coverage, so a gradient-faded selection stays faded through Fill, Delete,
-  Copy and Add Layer Mask. ⌘-clicking a layer's thumbnail loads its alpha the
-  same way. Path-only selections (everything else) behave exactly as before;
+  Copy and Add Layer Mask. Selecting still works with the mask up — a marquee
+  made inside Quick Mask limits where painting it lands — and ⌫ fills the
+  channel with the background colour. ⌘-clicking a layer's thumbnail loads its
+  alpha the same way. Path-only selections (everything else) behave as before;
   reshaping one that has coverage — a boolean, Select ▸ Modify, a scaled
   Transform Selection — drops the channel and says so in a toast.
 - Dragging inside a selection with the marquee or lasso moves the outline,
