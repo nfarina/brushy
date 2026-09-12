@@ -151,12 +151,13 @@ final class BrushTests: XCTestCase {
                      "one undo reverts the stroke AND the auto-created mask")
     }
 
-    func testBrushBlockedOnImportedLayerWithoutMask() {
+    func testBrushOnImportedLayerWithoutMaskAsksToRasterize() {
         let store = makeImportedStore()
         store.activeTool = .brush
         store.beginBrushStroke(at: CGPoint(x: 100, y: 100), eraser: false)
         XCTAssertNil(store.strokePreview)
-        XCTAssertNotNil(store.brushHint, "a hint explains why painting is blocked")
+        XCTAssertNotNil(store.rasterizePrompt,
+                        "painting a photo offers the way out instead of refusing")
         store.endBrushStroke()
         XCTAssertFalse((store.undoManager?.canUndo) ?? false)
     }

@@ -1480,6 +1480,101 @@ final class DocumentStore: ObservableObject {
 
     @Published private(set) var selectionFloat: SelectionFloat?
 
+    // MARK: - Rasterize (the escape hatch from the never-paint rule)
+
+    /// Photoshop's "this layer must be rasterized to continue" prompt.
+    /// Raised only where the app would otherwise refuse outright: colour onto
+    /// an imported photo that has no mask to route to. Erasing still hides
+    /// through a mask, which loses nothing.
+    struct RasterizePrompt: Identifiable {
+        let id = UUID()
+        let layerID: UUID
+        let layerName: String
+        /// Completes "Rasterize it to …" in the alert.
+        let intent: String
+    }
+
+    enum RasterizeChoice { case rasterize, addMask, cancel }
+
+    @Published var rasterizePrompt: RasterizePrompt?
+    /// Re-run once the layer can take the edit (a stroke can't resume, so the
+    /// brush leaves this nil and the user draws again).
+    private var pendingRasterizeAction: (() -> Void)?
+
+    private func promptRasterize(_ layer: Layer, intent: String,
+                                 then action: (() -> Void)? = nil) {
+        pendingRasterizeAction = action
+        rasterizePrompt = RasterizePrompt(layerID: layer.id, layerName: layer.name, intent: intent)
+    }
+
+    func resolveRasterizePrompt(_ choice: RasterizeChoice) {
+        let prompt = rasterizePrompt
+        let action = pendingRasterizeAction
+        rasterizePrompt = nil
+        pendingRasterizeAction = nil
+        guard let prompt, choice != .cancel else { return }
+        switch choice {
+        case .rasterize:
+            rasterizeLayer(prompt.layerID)
+        case .addMask:
+            selectLayer(prompt.layerID)
+            addLayerMask()
+        case .cancel:
+            return
+        }
+        action?()
+    }
+
+    /// True for anything whose pixels are off limits: an imported photo, or a
+    /// text/shape layer still driven by its spec.
+    static func needsRasterize(_ layer: Layer) -> Bool {
+        if case .raster = layer.kind { return !layer.isPaintable }
+        return true
+    }
+
+    var canRasterizeSelectedLayer: Bool { selectedLayer.map(Self.needsRasterize) ?? false }
+
+    /// Layer ▸ Rasterize Layer: turns a photo (or a text/shape layer) into
+    /// ordinary paintable pixels, baking its transform into the grid.
+    ///
+    /// An enabled mask is applied into the alpha and dropped, like Photoshop's
+    /// Apply Layer Mask — the layer is becoming pixels, so hiding and erasing
+    /// stop being different things. Undo brings the photo, its mask and its
+    /// original bytes straight back.
+    func rasterizeLayer(_ id: UUID) {
+        commitPendingSessions()
+        guard let layer = document[layerID: id], Self.needsRasterize(layer) else { return }
+        let updated: Layer
+        if case .raster = layer.kind {
+            let bounds = layer.canvasBounds.integral
+            guard bounds.width >= 1, bounds.height >= 1 else { return }
+            // Baked at full opacity, with opacity, blend, clipping and style
+            // left on the layer where they still belong.
+            var solo = layer
+            solo.opacity = 1
+            guard let image = RenderEngine.shared.renderLayerRegion(
+                solo, croppedTo: bounds, sixteenBit: layer.source.bitsPerComponent > 8) else { return }
+            updated = Layer(id: layer.id, sourceID: UUID(), name: layer.name, source: image,
+                            transform: CGAffineTransform(translationX: bounds.minX, y: bounds.minY),
+                            opacity: layer.opacity, isVisible: layer.isVisible, mask: nil,
+                            isPaintable: true, kind: .raster, blendMode: layer.blendMode,
+                            isClippedToBelow: layer.isClippedToBelow, groupID: layer.groupID,
+                            effects: layer.effects)
+        } else {
+            // Text and shapes already carry their rasterization as `source`;
+            // rasterizing stops it regenerating and lets pixels land on it, so
+            // the same bytes keep the same identity.
+            updated = Layer(id: layer.id, sourceID: layer.sourceID, name: layer.name,
+                            source: layer.source, transform: layer.transform,
+                            opacity: layer.opacity, isVisible: layer.isVisible, mask: layer.mask,
+                            isPaintable: true, kind: .raster, blendMode: layer.blendMode,
+                            isClippedToBelow: layer.isClippedToBelow, groupID: layer.groupID,
+                            effects: layer.effects)
+        }
+        maskTargeted = false
+        commit("Rasterize Layer", document: document.replacingLayer(updated))
+    }
+
     /// Lifts the selection's pixels onto a temporary layer directly above
     /// their own, and returns it — nil when there is nothing liftable, in
     /// which case callers fall back to moving the whole layer.
@@ -2062,6 +2157,8 @@ final class DocumentStore: ObservableObject {
         case mask(Layer)
         case paint(Layer)
         case needsAutoMask(Layer)
+        /// An imported photo with no mask to fall back on: ask first.
+        case needsRasterize(Layer)
         case blocked(String)
     }
 
@@ -2084,7 +2181,9 @@ final class DocumentStore: ObservableObject {
         if eraser {
             return .needsAutoMask(layer)
         }
-        return .blocked("Add a paint layer (⇧⌘N) or a mask to paint on “\(layer.name)”")
+        // Colour on an imported photo: the one case where the never-paint rule
+        // has to give, so offer Photoshop's way out rather than refusing.
+        return .needsRasterize(layer)
     }
 
     var brushTargetDescription: String? {
@@ -2094,6 +2193,8 @@ final class DocumentStore: ObservableObject {
         case .mask(let layer): return "Painting mask of “\(layer.name)” — black hides, white reveals"
         case .paint(let layer): return "Painting “\(layer.name)”"
         case .needsAutoMask(let layer): return "Erasing will add a hide-mask to “\(layer.name)”"
+        case .needsRasterize(let layer):
+            return "“\(layer.name)” is an imported image — painting asks to rasterize it first"
         case .blocked(let reason): return reason
         }
     }
@@ -2107,6 +2208,11 @@ final class DocumentStore: ObservableObject {
         switch resolveStrokeTarget(eraser: eraser) {
         case .blocked(let reason):
             brushHint = reason
+            return
+        case .needsRasterize(let target):
+            // No stroke this time: Photoshop asks, and you draw again once the
+            // layer can take pixels.
+            promptRasterize(target, intent: "paint on it")
             return
         case .mask(let target):
             layer = target
@@ -2379,7 +2485,13 @@ final class DocumentStore: ObservableObject {
     func fillSelection(using color: CGColor) {
         commitPendingSessions()
         guard let target = resolveFillTarget() else {
-            brushHint = "Fill needs a paint layer or a mask — add one first"
+            if let layer = selectedLayer, selectedLayerEffectivelyVisible {
+                promptRasterize(layer, intent: "fill it") { [weak self] in
+                    self?.fillSelection(using: color)
+                }
+            } else {
+                brushHint = "Fill needs a paint layer or a mask — add one first"
+            }
             return
         }
         let path = selection.path ?? CGPath(rect: document.canvasRect, transform: nil)
@@ -2489,7 +2601,13 @@ final class DocumentStore: ObservableObject {
         commitPendingSessions()
         brushHint = nil
         guard let target = resolveFillTarget() else {
-            brushHint = "Gradient needs a paint layer or a mask — add one first"
+            if let layer = selectedLayer, selectedLayerEffectivelyVisible {
+                promptRasterize(layer, intent: "run a gradient over it") { [weak self] in
+                    self?.applyGradient(from: start, to: end)
+                }
+            } else {
+                brushHint = "Gradient needs a paint layer or a mask — add one first"
+            }
             return
         }
         let line = GradientLine(start: start, end: end)
@@ -2718,7 +2836,8 @@ final class DocumentStore: ObservableObject {
         let path = selection.path ?? CGPath(rect: layer.canvasBounds, transform: nil)
         let updated: Layer?
         switch resolveStrokeTarget(eraser: true) {
-        case .blocked:
+        // Erasing never needs a rasterize: it hides through a mask instead.
+        case .blocked, .needsRasterize:
             return
         case .mask(let target):
             updated = Self.maskFilled(target, path: path, gray: 0)
@@ -2745,7 +2864,8 @@ final class DocumentStore: ObservableObject {
         guard selectedLayerEffectivelyVisible, let path = selection.path else { return }
         let updated: Layer?
         switch resolveStrokeTarget(eraser: true) {
-        case .blocked:
+        // Erasing never needs a rasterize: it hides through a mask instead.
+        case .blocked, .needsRasterize:
             return
         case .mask(let target):
             updated = Self.maskFilled(target, path: path, gray: 0)

@@ -125,6 +125,9 @@ final class DezzyDocument: NSDocument {
               let command = DistributeCommand(rawValue: raw) else { return }
         store.distributeSelection(command)
     }
+    @objc func rasterizeLayer(_ sender: Any?) {
+        if let id = store.selectedLayerID { store.rasterizeLayer(id) }
+    }
     @objc func mergeDown(_ sender: Any?) { store.mergeDownSelectedLayer() }
     @objc func deleteLayer(_ sender: Any?) { store.deleteSelectedLayer() }
     // Layer groups: ⌘G / ⇧⌘G.
@@ -198,7 +201,7 @@ final class DezzyDocument: NSDocument {
         #selector(selectSubject(_:)), #selector(cropToSelection(_:)),
         #selector(duplicateLayer(_:)),
         #selector(duplicateLayerToDocument(_:)), #selector(duplicateLayerToNewDocument(_:)),
-        #selector(deleteLayer(_:)), #selector(mergeDown(_:)),
+        #selector(deleteLayer(_:)), #selector(mergeDown(_:)), #selector(rasterizeLayer(_:)),
         #selector(groupLayer(_:)), #selector(ungroupLayer(_:)),
         #selector(alignLayers(_:)), #selector(distributeLayers(_:)),
         #selector(flipHorizontal(_:)), #selector(flipVertical(_:)),
@@ -256,6 +259,8 @@ final class DezzyDocument: NSDocument {
             // Merge Down never crosses a group boundary — same guard as
             // `mergeDownSelectedLayer`.
             return below.groupID == layer.groupID && layer.isVisible && below.isVisible
+        case #selector(rasterizeLayer(_:)):
+            return store.canRasterizeSelectedLayer
         case #selector(showLayerStyle(_:)), #selector(showLayerStyleEffect(_:)):
             return store.selectedLayer != nil
         case #selector(clearLayerStyle(_:)):

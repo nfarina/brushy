@@ -65,6 +65,21 @@ struct RootView: View {
         .sheet(item: $store.layerStyleRequested) { request in
             LayerStyleSheet(store: store, request: request)
         }
+        // Photoshop's rasterize prompt. "Add Layer Mask" is offered alongside
+        // it because on a photo that is usually the better answer here.
+        .alert("Rasterize “\(store.rasterizePrompt?.layerName ?? "")”?",
+               isPresented: Binding(
+                get: { store.rasterizePrompt != nil },
+                set: { if !$0 { store.resolveRasterizePrompt(.cancel) } }),
+               presenting: store.rasterizePrompt) { _ in
+            Button("Rasterize") { store.resolveRasterizePrompt(.rasterize) }
+            Button("Add Layer Mask") { store.resolveRasterizePrompt(.addMask) }
+            Button("Cancel", role: .cancel) { store.resolveRasterizePrompt(.cancel) }
+        } message: { prompt in
+            Text("“\(prompt.layerName)” is an imported image, so its pixels are never changed. "
+                 + "Rasterize it to \(prompt.intent) directly — its mask, if any, is applied into "
+                 + "the pixels — or add a layer mask to keep working non-destructively.")
+        }
         .alert("Dezzy", isPresented: Binding(
             get: { store.lastErrorMessage != nil },
             set: { if !$0 { store.lastErrorMessage = nil } })) {

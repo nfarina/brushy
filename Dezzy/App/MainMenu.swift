@@ -143,6 +143,10 @@ enum MainMenuBuilder {
             action: #selector(DezzyDocument.duplicateLayerToDocument(_:)),
             keyEquivalent: "")
         duplicateTo.submenu = NSMenu(title: "Duplicate Layer to")
+        // Photoshop's Layer ▸ Rasterize: the way out of the never-paint rule
+        // for photos, text and shapes.
+        layer.addItem(withTitle: "Rasterize Layer",
+                      action: #selector(DezzyDocument.rasterizeLayer(_:)), keyEquivalent: "")
         layer.addItem(withTitle: "Merge Down",
                       action: #selector(DezzyDocument.mergeDown(_:)), keyEquivalent: "e")
         layer.addItem(withTitle: "Delete Layer",

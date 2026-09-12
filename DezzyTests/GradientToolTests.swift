@@ -213,13 +213,13 @@ final class GradientToolTests: XCTestCase {
         XCTAssertFalse(store.canUndo, "zero-length drags leave no history entry")
     }
 
-    func testBlockedOnImportedLayerWithoutMask() throws {
+    func testGradientOnImportedLayerWithoutMaskAsksToRasterize() throws {
         let store = makeImportedStore(withMask: false)
         let original = store.document.layers[0]
         store.applyGradient(from: CGPoint(x: 50, y: 100), to: CGPoint(x: 150, y: 100))
 
-        XCTAssertNotNil(store.brushHint, "blocked gradients explain themselves")
-        XCTAssertFalse(store.canUndo, "a blocked gradient leaves no history entry")
+        XCTAssertNotNil(store.rasterizePrompt, "the gradient asks before touching a photo")
+        XCTAssertFalse(store.canUndo, "and nothing lands until it is answered")
         let after = store.document.layers[0]
         XCTAssertTrue(after.source === original.source,
                       "imported pixels are never replaced")

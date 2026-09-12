@@ -113,11 +113,12 @@ final class LayerOpsTests: XCTestCase {
         XCTAssertGreaterThan(pixels[150, 20].a, 250)
     }
 
-    func testFillBlockedOnImportedLayerWithoutMask() {
+    func testFillOnImportedLayerWithoutMaskAsksToRasterize() {
         let store = makeStore()
         store.selectLayer(store.document.layers[0].id)
         XCTAssertFalse(store.canFillSelection)
         store.fillSelection()
-        XCTAssertNotNil(store.brushHint)
+        XCTAssertNotNil(store.rasterizePrompt)
+        XCTAssertFalse(store.canUndo, "nothing lands until it is answered")
     }
 }
