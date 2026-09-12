@@ -2187,6 +2187,23 @@ final class DocumentStore: ObservableObject {
     }
 
     // Brush keys: X swaps colours, D resets, [ ] size, ⇧[ ⇧] hardness.
+    /// Which chip the colour picker is editing.
+    enum ColorTarget: String, Identifiable {
+        case foreground, background
+        var id: String { rawValue }
+    }
+
+    /// Non-nil while the colour picker sheet is up (RootView presents it).
+    @Published var colorPickerRequest: ColorTarget?
+
+    func color(for target: ColorTarget) -> CGColor {
+        target == .foreground ? foregroundColor : backgroundColor
+    }
+
+    func setColor(_ color: CGColor, for target: ColorTarget) {
+        if target == .foreground { foregroundColor = color } else { backgroundColor = color }
+    }
+
     func swapBrushColors() {
         let fg = foregroundColor
         foregroundColor = backgroundColor

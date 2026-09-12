@@ -56,6 +56,9 @@ struct RootView: View {
         .sheet(isPresented: $store.fillRequested) {
             FillSheet(store: store)
         }
+        .sheet(item: $store.colorPickerRequest) { target in
+            ColorPickerSheet(store: store, target: target)
+        }
         .sheet(item: $store.selectionModifyRequested) { kind in
             SelectionModifySheet(store: store, kind: kind)
         }

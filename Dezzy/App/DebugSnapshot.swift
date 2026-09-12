@@ -58,7 +58,8 @@ enum DebugSnapshot {
                                           attemptsLeft: attemptsLeft - 1,
                                           sheetSettlePasses: dialogSettlePasses)
             }
-            if dialogSettlePasses > 0, store.layerStyleRequested != nil || isSettingsSnapshot {
+            if dialogSettlePasses > 0,
+               store.layerStyleRequested != nil || store.colorPickerRequest != nil || isSettingsSnapshot {
                 return captureWhenSettled(window: window, store: store, path: path,
                                           attemptsLeft: attemptsLeft,
                                           sheetSettlePasses: dialogSettlePasses - 1)
@@ -93,6 +94,9 @@ enum DebugSnapshot {
         } else if let request = store.layerStyleRequested {
             dialog = (AnyView(LayerStyleSheet(store: store, request: request)),
                       CGSize(width: 660, height: 480))
+        } else if let target = store.colorPickerRequest {
+            dialog = (AnyView(ColorPickerSheet(store: store, target: target)),
+                      CGSize(width: 520, height: 300))
         } else {
             dialog = nil
         }
@@ -125,6 +129,9 @@ enum DebugSnapshot {
         case "transform":
             store.selectLayer(store.document.layers.last?.id)
             store.enterTransformMode()
+        case "colorpicker":
+            store.foregroundColor = CGColor(srgbRed: 0.15, green: 0.45, blue: 0.85, alpha: 1)
+            store.colorPickerRequest = .foreground
         case "pixelgrid":
             // 1200% on the canvas centre: past the pixel grid's 500% threshold.
             let center = CGPoint(x: store.document.canvasSize.width / 2,

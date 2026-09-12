@@ -44,9 +44,9 @@ private struct ColorSwatches: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            swatch(\.backgroundColor, help: "Background colour")
+            swatch(.background, help: "Background colour")
                 .offset(x: offset, y: offset)
-            swatch(\.foregroundColor, help: "Foreground colour")
+            swatch(.foreground, help: "Foreground colour")
             Button { store.swapBrushColors() } label: {
                 SwapArrow()
                     .stroke(Color.primary, style: StrokeStyle(lineWidth: 1.2, lineCap: .round,
@@ -69,13 +69,28 @@ private struct ColorSwatches: View {
         .frame(width: chip + offset, height: chip + offset, alignment: .topLeading)
     }
 
-    private func swatch(_ keyPath: ReferenceWritableKeyPath<DocumentStore, CGColor>,
-                        help: String) -> some View {
-        ColorChip(color: store[keyPath: keyPath])
-            .frame(width: chip, height: chip)
-            .overlay(PanelColorWell(color: store[keyPath: keyPath], toolTip: help) {
-                store[keyPath: keyPath] = $0
-            })
+    private func swatch(_ target: DocumentStore.ColorTarget, help: String) -> some View {
+        ColorChipButton(store: store, target: target, size: chip, help: help)
+    }
+}
+
+/// A colour chip that opens the app's own picker (never the system one).
+struct ColorChipButton: View {
+    @ObservedObject var store: DocumentStore
+    let target: DocumentStore.ColorTarget
+    var size: CGFloat = 22
+    let help: String
+
+    var body: some View {
+        Button {
+            store.colorPickerRequest = target
+        } label: {
+            ColorChip(color: store.color(for: target))
+                .frame(width: size, height: size)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -138,59 +153,6 @@ private struct DefaultColorsIcon: View {
     }
 }
 
-/// An invisible NSColorWell laid over a chip. The well supplies the colour
-/// panel plumbing — `activate(true)` detaches whichever well (including the
-/// options bar's ColorPickers) was driving the shared panel, so only one colour
-/// edits at a time — while the chip above does the drawing.
-private struct PanelColorWell: NSViewRepresentable {
-    let color: CGColor
-    let toolTip: String
-    let onChange: (CGColor) -> Void
-
-    func makeNSView(context: Context) -> ChipColorWell {
-        let well = ChipColorWell()
-        well.alphaValue = 0
-        well.target = context.coordinator
-        well.action = #selector(Coordinator.colorChanged(_:))
-        return well
-    }
-
-    func updateNSView(_ well: ChipColorWell, context: Context) {
-        context.coordinator.onChange = onChange
-        well.toolTip = toolTip
-        // Compare in sRGB: the panel hands back colours in its own space, and
-        // re-assigning an equal colour would bounce through the panel again.
-        if well.color.usingColorSpace(.sRGB)?.cgColor != color {
-            well.color = NSColor(cgColor: color) ?? .black
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
-
-    final class Coordinator: NSObject {
-        var onChange: (CGColor) -> Void
-        init(onChange: @escaping (CGColor) -> Void) { self.onChange = onChange }
-
-        @objc func colorChanged(_ sender: NSColorWell) {
-            onChange((sender.color.usingColorSpace(.sRGB) ?? .black).cgColor)
-        }
-    }
-
-    final class ChipColorWell: NSColorWell {
-        /// Straight to the full colour panel, skipping the macOS 13+ well's
-        /// swatch popover — a Photoshop chip opens the picker on click.
-        override func mouseDown(with event: NSEvent) {
-            NSColorPanel.shared.showsAlpha = true
-            activate(true)
-            NSColorPanel.shared.orderFront(nil)
-        }
-
-        /// The well's own subviews (the popover arrow) must not take the click.
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            frame.contains(point) ? self : nil
-        }
-    }
-}
 
 /// Context-sensitive options above the canvas.
 struct ToolOptionsBar: View {
@@ -338,10 +300,8 @@ struct ToolOptionsBar: View {
                         label: "\(Int(store.brushOpacity))%")
             if store.activeTool == .brush {
                 Divider().frame(height: 18)
-                ColorPicker("", selection: colorBinding(\.foregroundColor), supportsOpacity: true)
-                    .labelsHidden()
-                    .frame(width: 34)
-                    .help("Foreground colour (painted; X swaps, D resets)")
+                ColorChipButton(store: store, target: .foreground,
+                                help: "Foreground colour — painted (X swaps, D resets)")
                 Button {
                     store.swapBrushColors()
                 } label: {
@@ -349,10 +309,7 @@ struct ToolOptionsBar: View {
                 }
                 .buttonStyle(.plain)
                 .help("Swap foreground/background (X)")
-                ColorPicker("", selection: colorBinding(\.backgroundColor), supportsOpacity: true)
-                    .labelsHidden()
-                    .frame(width: 34)
-                    .help("Background colour")
+                ColorChipButton(store: store, target: .background, help: "Background colour")
             }
             if let hint = store.brushTargetDescription {
                 Divider().frame(height: 18)
@@ -376,10 +333,8 @@ struct ToolOptionsBar: View {
             .frame(width: 130)
             .help("Gradient shape: linear ramps along the drag, radial rings out from its start")
             Divider().frame(height: 18)
-            ColorPicker("", selection: colorBinding(\.foregroundColor), supportsOpacity: true)
-                .labelsHidden()
-                .frame(width: 34)
-                .help("Start colour (foreground — X swaps, D resets)")
+            ColorChipButton(store: store, target: .foreground,
+                            help: "Start colour — foreground (X swaps, D resets)")
             Button {
                 store.swapBrushColors()
             } label: {
@@ -387,10 +342,7 @@ struct ToolOptionsBar: View {
             }
             .buttonStyle(.plain)
             .help("Swap foreground/background (X)")
-            ColorPicker("", selection: colorBinding(\.backgroundColor), supportsOpacity: true)
-                .labelsHidden()
-                .frame(width: 34)
-                .help("End colour (background)")
+            ColorChipButton(store: store, target: .background, help: "End colour — background")
             Divider().frame(height: 18)
             Toggle(isOn: $store.gradientToTransparent) { Text("To Transparent") }
                 .toggleStyle(.checkbox)
@@ -423,14 +375,10 @@ struct ToolOptionsBar: View {
             .frame(width: 200)
             .help("Average over an N×N box of canvas pixels (zoom-independent)")
             Divider().frame(height: 18)
-            ColorPicker("", selection: colorBinding(\.foregroundColor), supportsOpacity: true)
-                .labelsHidden()
-                .frame(width: 34)
-                .help("Foreground colour — click samples into it (X swaps, D resets)")
-            ColorPicker("", selection: colorBinding(\.backgroundColor), supportsOpacity: true)
-                .labelsHidden()
-                .frame(width: 34)
-                .help("Background colour — ⌥-click samples into it")
+            ColorChipButton(store: store, target: .foreground,
+                            help: "Foreground colour — click samples into it (X swaps, D resets)")
+            ColorChipButton(store: store, target: .background,
+                            help: "Background colour — ⌥-click samples into it")
             Text("Click sets foreground · ⌥-click sets background")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -449,14 +397,6 @@ struct ToolOptionsBar: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 42, alignment: .leading)
         }
-    }
-
-    private func colorBinding(_ keyPath: ReferenceWritableKeyPath<DocumentStore, CGColor>) -> Binding<Color> {
-        Binding(get: { Color(cgColor: store[keyPath: keyPath]) },
-                set: { newValue in
-                    let ns = NSColor(newValue).usingColorSpace(.sRGB) ?? .black
-                    store[keyPath: keyPath] = ns.cgColor
-                })
     }
 
     // MARK: Text tool
