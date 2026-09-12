@@ -340,9 +340,24 @@ struct LayersPanel: View {
                     }
             }
             .buttonStyle(.plain)
+            // Double-click rasterizes a smart layer (Photoshop's gesture for
+            // opening one, put to the use this app has for it). Simultaneous,
+            // so the button's own click still targets the layer first. The
+            // NAME's double-click renames, which is why this lives here.
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                if layer.kind.adjustmentSpec != nil {
+                    // An adjustment has nothing to rasterize; open its editor.
+                    store.selectLayer(layer.id)
+                    store.requestAdjustmentEdit()
+                } else if Self.isSmart(layer) {
+                    store.rasterizeLayer(layer.id)
+                    store.showToast("Rasterized “\(layer.name)”")
+                }
+            })
             .accessibilityLabel("Layer thumbnail, \(layer.name)")
             .accessibilityValue(isSelected && !store.maskTargeted ? "Targeted" : "Not targeted")
-            .accessibilityHint("Targets the layer's pixels. Option-click clips it to the layer below.")
+            .accessibilityHint("Targets the layer's pixels. Option-click clips it to the layer below. "
+                               + "Double-click rasterizes a smart layer.")
             .help("Click to target layer · ⌥-click to clip to the layer below")
 
             if let mask = layer.mask {
@@ -395,7 +410,8 @@ struct LayersPanel: View {
                     .font(Self.isSmart(layer) ? .callout.italic() : .callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(Self.isSmart(layer)
-                          ? "Smart layer — editing its pixels rasterizes it first"
+                          ? "Smart layer — editing its pixels rasterizes it first "
+                            + "(double-click the thumbnail to do it now)"
                           : "Pixel layer")
                     .onTapGesture(count: 2) {
                         editingRowID = layer.id
