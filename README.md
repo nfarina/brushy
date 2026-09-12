@@ -7,7 +7,7 @@ the modifier keys.
 
 Layers with blend modes, groups and clipping masks. Move, marquee, lasso, crop,
 eyedropper, brush, eraser, gradient, text and shape tools. Selections that
-feather, modify and transform, including Select Subject. Non-destructive
+feather, modify and transform, including Select Subject and Quick Mask. Non-destructive
 transforms, layer effects, rulers/guides/grid with snapping, a history panel,
 and PSD read/write.
 
@@ -157,6 +157,18 @@ Implementation choices worth knowing:
   dragged span the ramp clamps to its end colours across the whole target.
   Bakes once on mouse-up as one "Gradient" undo step — the drag shows the
   vector line only, not a live full-gradient preview.
+- Quick Mask (Q, or the toggle under the colour chips): the selection becomes
+  an 8-bit channel shown as Photoshop's 50% red rubylith, painted with the
+  brush, filled and gradient-faded like any mask, and undone stroke by stroke.
+  Leaving traces it back at 50% — and keeps the channel as the selection's
+  coverage, so a gradient-faded selection stays faded through Fill, Delete,
+  Copy and Add Layer Mask. ⌘-clicking a layer's thumbnail loads its alpha the
+  same way. Path-only selections (everything else) behave exactly as before;
+  reshaping one that has coverage — a boolean, Select ▸ Modify, a scaled
+  Transform Selection — drops the channel and says so in a toast.
+- Dragging inside a selection with the marquee or lasso moves the outline,
+  not the pixels (⇧ constrains it, and ⇧/⌥ at mouse-down still mean
+  add/subtract) — one "Move Selection Outline" undo step.
 - Select → Select Subject: Vision's foreground-instance mask (macOS 14's
   `VNGenerateForegroundInstanceMaskRequest`) runs on the selected layer's own
   source off the main thread, and the mask is vectorized (subpixel marching

@@ -20,6 +20,8 @@ struct BrushStroke {
     enum Target: Equatable {
         case mask(layerID: UUID)
         case paintLayer(layerID: UUID)
+        /// The Quick Mask channel: canvas-sized, canvas-aligned, no layer.
+        case quickMask
     }
 
     let target: Target
@@ -61,9 +63,11 @@ struct BrushStroke {
         coverage = [UInt8](repeating: 0, count: targetWidth * targetHeight)
     }
 
-    var layerID: UUID {
+    /// nil for the Quick Mask, which belongs to no layer.
+    var layerID: UUID? {
         switch target {
         case .mask(let id), .paintLayer(let id): return id
+        case .quickMask: return nil
         }
     }
 
@@ -209,14 +213,19 @@ struct StrokePreview {
 }
 
 extension BrushStroke {
+    /// Stands in for `layerID` in a Quick Mask preview, which never reaches the
+    /// renderer's per-layer preview path — the store bakes it straight into the
+    /// channel.
+    static let noLayerID = UUID()
+
     func preview() -> StrokePreview? {
         guard let (image, origin) = coverageImage() else { return nil }
         let targetsMask: Bool
         switch target {
-        case .mask: targetsMask = true
+        case .mask, .quickMask: targetsMask = true
         case .paintLayer: targetsMask = false
         }
-        return StrokePreview(layerID: layerID,
+        return StrokePreview(layerID: layerID ?? Self.noLayerID,
                              targetsMask: targetsMask,
                              coverageImage: image,
                              originYUp: origin,

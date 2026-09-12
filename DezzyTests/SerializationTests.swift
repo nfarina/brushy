@@ -28,7 +28,8 @@ final class SerializationTests: XCTestCase {
                                                          r: 20, g: 220, b: 120, colorSpace: p3),
                            transform: CGAffineTransform(translationX: 100, y: 80))
         let maskPath = CGPath(rect: CGRect(x: 120, y: 100, width: 60, height: 40), transform: nil)
-        layerC.mask = Mask(texture: MaskFactory.maskTexture(for: layerC, selection: maskPath,
+        layerC.mask = Mask(texture: MaskFactory.maskTexture(for: layerC,
+                                                            selection: SelectionState(path: maskPath),
                                                             featherCanvasPx: 8),
                            isEnabled: false)
 

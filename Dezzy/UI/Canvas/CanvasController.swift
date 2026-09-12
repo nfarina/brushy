@@ -45,6 +45,9 @@ final class CanvasController {
         case cropMove(startCanvas: CGPoint, initialRect: CGRect)
         case marquee(startCanvas: CGPoint, mode: SelectionState.CombineMode)
         case lasso(points: [CGPoint], mode: SelectionState.CombineMode)
+        /// Dragging the marching ants themselves — a selection tool pressed
+        /// INSIDE the selection moves the outline, not the pixels (Photoshop).
+        case selectionOutline(startCanvas: CGPoint)
         case brushStroke
         case sampleColor(transient: Bool)
         case shapeNew(startCanvas: CGPoint)
@@ -179,10 +182,20 @@ final class CanvasController {
                                   initial: target.transform, viaSession: false, moved: false,
                                   duplicated: false, shiftAtDown: shiftDown, startView: viewPoint)
             }
-        case .marquee:
-            drag = .marquee(startCanvas: canvasPoint, mode: combineMode())
-        case .lasso:
-            drag = .lasso(points: [canvasPoint], mode: combineMode())
+        case .marquee, .lasso:
+            // Inside the selection with no modifier held, the press grabs the
+            // outline (Photoshop). ⇧/⌥ mean add/subtract, so they start a new
+            // marquee even over the selection, as they do there.
+            if !shiftDown, !optionDown, store.selectionContains(canvasPoint) {
+                drag = .selectionOutline(startCanvas: canvasPoint)
+                refreshCursor()
+                return
+            }
+            if store.activeTool == .marquee {
+                drag = .marquee(startCanvas: canvasPoint, mode: combineMode())
+            } else {
+                drag = .lasso(points: [canvasPoint], mode: combineMode())
+            }
         case .wand:
             // A wand click is the whole gesture — nothing to drag.
             store.selectByWand(at: canvasPoint, mode: combineMode())
@@ -375,6 +388,12 @@ final class CanvasController {
             } else if rect.width >= 1, rect.height >= 1 {
                 store.combineSelection(CGPath(rect: rect, transform: nil), mode: mode)
             }
+        case .selectionOutline(let startCanvas):
+            // ⇧ constrains the outline drag to an axis, like every other move.
+            var delta = viewport.fromView(viewPoint) - startCanvas
+            if shiftDown { delta = TransformMath.constrainedTo45(delta) }
+            store.moveSelectionOutline(by: delta)
+
         case .lasso(let points, let mode):
             store.previewSelectionPath = nil
             let bounds = CGRect.aabb(of: points)
@@ -696,6 +715,11 @@ final class CanvasController {
                                                   square: shiftDown, fromCenter: optionDown)
             store.previewSelectionPath = CGPath(rect: rect, transform: nil)
 
+        case .selectionOutline(let startCanvas):
+            var delta = canvasPoint - startCanvas
+            if shiftDown { delta = TransformMath.constrainedTo45(delta) }
+            store.previewSelectionOutline(movedBy: delta)
+
         case .lasso(var points, let mode):
             if let last = points.last, (canvasPoint - last).length >= 0.5 / viewport.zoom {
                 points.append(canvasPoint)
@@ -793,6 +817,7 @@ final class CanvasController {
             return (drag != nil && isPanDrag) ? .closedHand : .openHand
         }
         if case .rotate = drag { return Cursors.rotate }
+        if case .selectionOutline = drag { return .arrow }
         if case .sampleColor = drag { return .crosshair }
         if case .selectionRotate = drag { return Cursors.rotate }
         if case .guide(_, let baseAxis, _, _) = drag {
@@ -831,7 +856,12 @@ final class CanvasController {
                 return guide.axis == .vertical ? .resizeLeftRight : .resizeUpDown
             }
             return .arrow
-        case .marquee, .lasso, .wand: return .crosshair
+        case .marquee, .lasso:
+            // Over the selection, the press would move the outline — say so.
+            if !shiftDown, !optionDown,
+               store.selectionContains(viewport.fromView(viewPoint)) { return .arrow }
+            return .crosshair
+        case .wand: return .crosshair
         case .crop:
             if let session = store.cropSession, let handle = hitCropHandle(viewPoint, session) {
                 let direction = CGPoint(x: handle.unitPoint.x - 0.5, y: handle.unitPoint.y - 0.5)

@@ -1,16 +1,54 @@
 import CoreGraphics
+import Foundation
 
-/// The active selection, as a normalized path in canvas space.
+/// Partial coverage for a selection whose edge a path cannot express: the
+/// alpha channel Photoshop's selections are made of, carried alongside the
+/// path rather than instead of it.
+///
+/// Sources are the two places a selection genuinely starts life as pixels —
+/// Quick Mask, and ⌘-clicking a layer to load its alpha. Everything else
+/// stays pure geometry.
+struct SelectionAlpha: Equatable {
+    /// The canvas-space rect the buffer covers, integral. Coverage outside it
+    /// is zero, so this must contain the whole selection.
+    let rect: CGRect
+    /// `rect`-sized 8-bit coverage, 255 = fully selected. Row 0 is the TOP
+    /// row, like every other mask buffer in the app (§4).
+    var texture: MaskTexture
+}
+
+/// The active selection: a normalized path in canvas space, optionally with a
+/// coverage channel.
 /// Not part of `Document` (it is not persisted), but it *is* included in undo
 /// snapshots so Cmd+Z restores selection changes the way Photoshop does.
+///
+/// **When `alpha` is present it IS the coverage** — the path is then its 50%
+/// contour, kept for the marching ants, for bounds (crop, Layer via Copy) and
+/// for every operation that can only clip to geometry. Multiplying the two
+/// would clip away the outer half of a soft edge, so nothing does: consumers
+/// read `alpha` when it exists and `path` when it does not
+/// (`MaskFactory` is where that choice is made once).
+///
+/// A path-only selection is the common case and behaves exactly as it always
+/// has. Any operation that reshapes the path — the boolean combines, Select ▸
+/// Modify, a non-translation Transform Selection — drops the alpha rather than
+/// let the two disagree; `DocumentStore` says so in a toast when it happens.
 struct SelectionState: Equatable {
     /// nil means "no selection" (everything acts as selected for editing ops,
     /// and Add Layer Mask produces a reveal-all mask).
     private(set) var path: CGPath?
+    /// Coverage, when this selection has soft or partial edges.
+    private(set) var alpha: SelectionAlpha?
 
     static let empty = SelectionState(path: nil)
 
+    init(path: CGPath?, alpha: SelectionAlpha? = nil) {
+        self.path = path
+        self.alpha = alpha
+    }
+
     var isEmpty: Bool { path == nil }
+    var hasAlpha: Bool { alpha != nil }
 
     enum CombineMode {
         case replace
@@ -18,6 +56,8 @@ struct SelectionState: Equatable {
         case subtract
     }
 
+    /// Geometry in, geometry out: the result is path-only, so any coverage the
+    /// old selection carried is gone (see the type's note).
     func combining(_ newPath: CGPath, mode: CombineMode) -> SelectionState {
         let result: CGPath?
         switch mode {
@@ -33,12 +73,88 @@ struct SelectionState: Equatable {
         return SelectionState(path: result.normalized())
     }
 
+    /// Select ▸ Inverse. With coverage this inverts the channel exactly
+    /// (255 − v over the canvas), which is what Photoshop's Inverse does and
+    /// the one boolean worth keeping soft — invert-after-Select-Subject is too
+    /// common to hand back a hard edge.
     func inverted(in canvasRect: CGRect) -> SelectionState {
+        if alpha != nil {
+            let rect = canvasRect.integral
+            var texture = coverageTexture(over: rect)
+            texture.mutate { data in
+                for index in data.indices { data[index] = 255 &- data[index] }
+            }
+            return .coverage(texture, rect: rect)
+        }
         let canvasPath = CGPath(rect: canvasRect, transform: nil)
         guard let path else { return SelectionState(path: canvasPath) }
         let inverted = canvasPath.subtracting(path)
         guard !inverted.isEmpty, !inverted.boundingBoxOfPath.isEmpty else { return .empty }
         return SelectionState(path: inverted.normalized())
+    }
+
+    // MARK: - Coverage
+
+    /// A selection made of pixels: the 50% contour becomes the path (the ants,
+    /// and every geometry-only consumer), the buffer becomes the coverage.
+    ///
+    /// A buffer that is already binary — a rectangle taken in and out of Quick
+    /// Mask, a hard-edged layer loaded as a selection — keeps no alpha at all,
+    /// so an operation that could not have softened anything does not leave a
+    /// coverage channel behind for later ops to drop noisily.
+    ///
+    /// A channel with nothing above 50% traces no contour and so becomes no
+    /// selection at all: there would be no outline to show and nothing to
+    /// grab. Photoshop draws the same line in the same place — that is what its
+    /// "no pixels are more than 50% selected" warning is about.
+    static func coverage(_ texture: MaskTexture, rect: CGRect) -> SelectionState {
+        let width = texture.width, height = texture.height
+        guard width > 0, height > 0, rect.width >= 1, rect.height >= 1 else { return .empty }
+        let data = texture.data
+        var covered = [Bool](repeating: false, count: width * height)
+        var isBinary = true
+        for index in 0..<(width * height) {
+            let value = data[index]
+            if value >= 128 { covered[index] = true }
+            if value != 0 && value != 255 { isBinary = false }
+        }
+        let traced = MagicWand.path(from: covered, width: width, height: height)
+        guard !traced.isEmpty else { return .empty }
+        var shift = CGAffineTransform(translationX: rect.minX, y: rect.minY)
+        guard let path = traced.copy(using: &shift), !path.boundingBoxOfPath.isEmpty else {
+            return .empty
+        }
+        return SelectionState(path: path.normalized(),
+                              alpha: isBinary ? nil
+                                              : SelectionAlpha(rect: rect, texture: texture))
+    }
+
+    /// This selection's coverage over `rect` (canvas space, integral), row 0 at
+    /// top: the alpha channel re-framed, or the path rasterised when there is
+    /// none. The single place coverage is produced from a selection.
+    func coverageTexture(over rect: CGRect) -> MaskTexture {
+        let width = max(1, rect.width.rounded().saturatingInt)
+        let height = max(1, rect.height.rounded().saturatingInt)
+        var data = Data(count: width * height) // zero-filled = unselected
+        data.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            guard let base = buffer.baseAddress,
+                  let ctx = CGContext(data: base, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width,
+                                      space: DezzyColorSpace.gray,
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return }
+            ctx.translateBy(x: -rect.minX, y: -rect.minY)
+            if let alpha {
+                // Same grid, so this is a blit; `.none` keeps it one even when
+                // a crop has left the two rects offset by a fraction.
+                ctx.interpolationQuality = .none
+                if let image = alpha.texture.cgImage { ctx.draw(image, in: alpha.rect) }
+            } else if let path {
+                ctx.setFillColor(gray: 1, alpha: 1)
+                ctx.addPath(path)
+                ctx.fillPath(using: .winding)
+            }
+        }
+        return MaskTexture(width: width, height: height, data: data)
     }
 }
 
@@ -145,12 +261,24 @@ extension SelectionState {
     }
 
     /// The selection mapped through `transform` (canvas space → canvas space).
-    /// Commit step of Select > Transform Selection. A degenerate (zero-scale)
-    /// transform collapses to `.empty`.
+    /// Commit step of Select > Transform Selection, of Crop's shift, and of
+    /// dragging the outline. A degenerate (zero-scale) transform collapses to
+    /// `.empty`.
+    ///
+    /// A whole-pixel translation carries the coverage with it — the buffer just
+    /// sits somewhere else on the grid, no resampling — which is what keeps
+    /// Crop and outline drags lossless. Anything else (scale, rotation, a
+    /// sub-pixel shift) would have to resample the channel, so it drops it.
     func transformed(by transform: CGAffineTransform) -> SelectionState {
         guard let path else { return .empty }
         var transform = transform
         guard let mapped = path.copy(using: &transform) else { return self }
-        return SelectionState(normalizing: mapped)
+        guard let alpha, transform.isWholePixelTranslation else {
+            return SelectionState(normalizing: mapped)
+        }
+        guard !mapped.isEmpty, !mapped.boundingBoxOfPath.isEmpty else { return .empty }
+        let moved = SelectionAlpha(rect: alpha.rect.offsetBy(dx: transform.tx, dy: transform.ty),
+                                   texture: alpha.texture)
+        return SelectionState(path: mapped.normalized(), alpha: moved)
     }
 }

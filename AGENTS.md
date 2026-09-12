@@ -91,6 +91,18 @@ routing logic to mirror is `DocumentStore.resolveStrokeTarget(eraser:)` and
 `resolveFillTarget()`. Any new "destructive" op (e.g. Cut) must follow the same
 routing.
 
+**5b. A selection is a path that MAY carry a coverage channel.**
+`SelectionState.path` is the geometry; `SelectionState.alpha` (a canvas-space
+8-bit buffer, row 0 at top) appears only when the selection started life as
+pixels — Quick Mask, or ⌘-clicking a layer to load its alpha. **When `alpha`
+is present it IS the coverage and the path is only its traced 50% contour**;
+never multiply the two, or the outer half of every soft edge disappears.
+Read coverage through `MaskFactory` / `SelectionState.coverageTexture(over:)`
+rather than rasterising the path yourself. Anything that reshapes the path
+(booleans, Select ▸ Modify, a Transform Selection that is not a whole-pixel
+translation) drops the channel; `DocumentStore.commitSelection(_:_:)` is what
+tells the user it did.
+
 **6. Coordinate spaces.**
 - *Canvas space*: origin bottom-left, **y-up**, 1 point = 1 exported pixel.
   All model geometry (transforms, selection paths, crop rects) lives here.

@@ -3,18 +3,23 @@ import CoreGraphics
 import Foundation
 
 /// Builds mask textures (source resolution, white = opaque) from selections.
+///
+/// This is the choke point where a selection becomes coverage, and so the one
+/// place that has to know a selection may carry an alpha channel: with one,
+/// the channel is drawn through the layer transform; without one, the path is
+/// filled, exactly as before.
 enum MaskFactory {
     /// Rasterises a canvas-space selection into the layer's source space
     /// (selected area white, rest black) and applies the feather as a Gaussian
     /// falloff. Feather is specified in canvas pixels, Photoshop-style; the
     /// Gaussian sigma is feather/2, converted into source pixels through the
-    /// layer's scale. A nil selection produces a reveal-all (all-white) mask.
+    /// layer's scale. An empty selection produces a reveal-all (all-white) mask.
     static func maskTexture(for layer: Layer,
-                            selection: CGPath?,
+                            selection: SelectionState,
                             featherCanvasPx: CGFloat) -> MaskTexture {
         let width = layer.source.width
         let height = layer.source.height
-        guard let selection, layer.transform.isInvertible else {
+        guard let path = selection.path, layer.transform.isInvertible else {
             return MaskTexture(width: width, height: height, fill: 255)
         }
 
@@ -27,12 +32,19 @@ enum MaskFactory {
                                       bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
                 return
             }
-            ctx.setFillColor(gray: 1, alpha: 1)
-            // Context space is source space; the inverse layer transform maps the
-            // canvas-space selection path into it.
+            // Context space is source space; the inverse layer transform maps
+            // canvas-space selection geometry into it.
             ctx.concatenate(layer.transform.inverted())
-            ctx.addPath(selection)
-            ctx.fillPath(using: .winding)
+            if let alpha = selection.alpha {
+                // The channel is the coverage, so it replaces the fill rather
+                // than modulating it — see `SelectionState`. A scaled layer
+                // resamples it here; a 1:1 one does not.
+                if let image = alpha.texture.cgImage { ctx.draw(image, in: alpha.rect) }
+            } else {
+                ctx.setFillColor(gray: 1, alpha: 1)
+                ctx.addPath(path)
+                ctx.fillPath(using: .winding)
+            }
         }
 
         var texture = MaskTexture(width: width, height: height, data: data)
@@ -50,25 +62,9 @@ enum MaskFactory {
     /// here, so sigma is simply feather/2. Row 0 is the buffer's top row, like
     /// every mask buffer. Used by clipboard Copy / Copy Merged to restrict
     /// copied pixels to the selection.
-    static func selectionTexture(rect: CGRect, selection: CGPath,
+    static func selectionTexture(rect: CGRect, selection: SelectionState,
                                  featherCanvasPx: CGFloat) -> MaskTexture {
-        let width = max(1, rect.width.rounded().saturatingInt)
-        let height = max(1, rect.height.rounded().saturatingInt)
-        var data = Data(count: width * height) // zero-filled = black = excluded
-        data.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
-            guard let base = buffer.baseAddress,
-                  let ctx = CGContext(data: base, width: width, height: height,
-                                      bitsPerComponent: 8, bytesPerRow: width,
-                                      space: DezzyColorSpace.gray,
-                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
-                return
-            }
-            ctx.setFillColor(gray: 1, alpha: 1)
-            ctx.translateBy(x: -rect.minX, y: -rect.minY)
-            ctx.addPath(selection)
-            ctx.fillPath(using: .winding)
-        }
-        var texture = MaskTexture(width: width, height: height, data: data)
+        var texture = selection.coverageTexture(over: rect)
         if featherCanvasPx > 0 {
             texture = blurred(texture, sigma: featherCanvasPx / 2)
         }

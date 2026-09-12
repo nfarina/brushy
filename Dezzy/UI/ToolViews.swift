@@ -25,6 +25,8 @@ struct ToolStrip: View {
             }
             ColorSwatches(store: store)
                 .padding(.top, 8)
+            QuickMaskButton(store: store)
+                .padding(.top, 10)
             Spacer()
         }
         .padding(.top, 10)
@@ -71,6 +73,33 @@ private struct ColorSwatches: View {
 
     private func swatch(_ target: DocumentStore.ColorTarget, help: String) -> some View {
         ColorChipButton(store: store, target: target, size: chip, help: help)
+    }
+}
+
+/// Photoshop's Quick Mask toggle, below the colour chips: a rectangle with a
+/// circle knocked out of it, filled the way the mode reads — grey outside and
+/// clear inside while off, red inside while on.
+private struct QuickMaskButton: View {
+    @ObservedObject var store: DocumentStore
+
+    var body: some View {
+        Button { store.toggleQuickMask() } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(store.quickMaskActive ? Color.red.opacity(0.45) : Color.secondary.opacity(0.3))
+                Circle()
+                    .fill(store.quickMaskActive ? Color.red : Color.secondary.opacity(0.85))
+                    .padding(4)
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
+            .frame(width: 22, height: 18)
+            .overlay(RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(store.quickMaskActive ? Color.red : Color.secondary, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(store.quickMaskActive ? "Edit in Standard Mode (Q)" : "Edit in Quick Mask Mode (Q)")
     }
 }
 

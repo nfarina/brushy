@@ -66,9 +66,10 @@ extension FixtureSpec {
             if let maskSpec = layerSpec.mask, maskSpec.selectionRect.count == 4 {
                 let r = maskSpec.selectionRect
                 let rect = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
-                let texture = MaskFactory.maskTexture(for: layer,
-                                                     selection: CGPath(rect: rect, transform: nil),
-                                                     featherCanvasPx: maskSpec.feather)
+                let texture = MaskFactory.maskTexture(
+                    for: layer,
+                    selection: SelectionState(path: CGPath(rect: rect, transform: nil)),
+                    featherCanvasPx: maskSpec.feather)
                 layer.mask = Mask(texture: texture, isEnabled: true)
             }
             document.layers.append(layer)

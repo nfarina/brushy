@@ -145,6 +145,32 @@ enum DebugSnapshot {
             let center = CGPoint(x: store.document.canvasSize.width / 2,
                                  y: store.document.canvasSize.height / 2)
             store.viewport.setZoom(12, anchorView: store.viewport.toView(center))
+        case "quickmask":
+            // A rectangle taken into Quick Mask, then painted into: the
+            // rubylith over the unselected area is what this state is for.
+            // Canvas-relative, so it reads the same on any demo document.
+            let rect = store.document.canvasRect
+            store.combineSelection(CGPath(rect: rect.insetBy(dx: rect.width * 0.15,
+                                                             dy: rect.height * 0.15),
+                                          transform: nil), mode: .replace)
+            store.enterQuickMask()
+            store.activeTool = .brush
+            store.brushSize = rect.width / 6
+            store.brushHardness = 40
+            store.brushOpacity = 100
+            store.foregroundColor = CGColor(gray: 0, alpha: 1)
+            store.beginBrushStroke(at: CGPoint(x: rect.width * 0.3, y: rect.height * 0.3),
+                                   eraser: false)
+            store.continueBrushStroke(to: CGPoint(x: rect.width * 0.6, y: rect.height * 0.6))
+            store.endBrushStroke()
+            // Soft-edged and half-opacity, the two things a path selection
+            // cannot express and this channel can.
+            store.brushHardness = 0
+            store.brushOpacity = 50
+            store.beginBrushStroke(at: CGPoint(x: rect.width * 0.75, y: rect.height * 0.35),
+                                   eraser: false)
+            store.continueBrushStroke(to: CGPoint(x: rect.width * 0.75, y: rect.height * 0.75))
+            store.endBrushStroke()
         case "crop":
             store.activeTool = .crop
             if var session = store.cropSession {

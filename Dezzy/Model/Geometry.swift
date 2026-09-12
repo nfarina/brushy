@@ -18,6 +18,15 @@ extension CGAffineTransform {
 
     var asArray: [Double] { [a, b, c, d, tx, ty] }
 
+    /// A pure translation by whole pixels — the one transform that can move a
+    /// pixel buffer without resampling it (Crop's shift, an outline drag, a
+    /// nudge). Identity qualifies.
+    var isWholePixelTranslation: Bool {
+        a == 1 && b == 0 && c == 0 && d == 1
+            && tx.isFinite && ty.isFinite
+            && tx == tx.rounded() && ty == ty.rounded()
+    }
+
     /// Every component finite. `isInvertible` only inspects a/b/c/d, so a
     /// transform can be "invertible" with a `tx` of 1e300 — which then reaches
     /// hit-testing and pixel indexing as a non-finite source coordinate.

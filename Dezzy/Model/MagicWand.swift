@@ -3,10 +3,11 @@ import CoreGraphics
 /// Magic Wand: the pixel test, the region search, and the trace that turns the
 /// region into the path a `SelectionState` holds (§5).
 ///
-/// Selections here are paths, not Photoshop's 8-bit masks, so the region is
-/// traced along pixel boundaries. That is exact for a hard-edged region; what
-/// it cannot reproduce is Photoshop's anti-aliased wand edge, which needs
-/// partial coverage.
+/// The region is traced along pixel boundaries into a path, which is exact for
+/// the hard-edged region a tolerance test produces; `MaskFactory` antialiases
+/// that path when it rasterises it, so the wand's edge lands soft the way
+/// Photoshop's does. `path(from:width:height:)` is also what traces a coverage
+/// channel's 50% contour for `SelectionState.coverage(_:rect:)`.
 enum MagicWand {
     /// RGBA8, premultiplied, row 0 at TOP — the layout `CGContext` hands back,
     /// and flipped relative to canvas space (§4).

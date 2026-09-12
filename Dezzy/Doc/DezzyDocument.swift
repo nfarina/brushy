@@ -190,6 +190,7 @@ final class DezzyDocument: NSDocument {
         store.selectionModifyRequested = kind
     }
     @objc func selectSubject(_ sender: Any?) { store.selectSubject() }
+    @objc func toggleQuickMask(_ sender: Any?) { store.toggleQuickMask() }
     @objc func zoomIn(_ sender: Any?) { store.zoomIn() }
     @objc func zoomOut(_ sender: Any?) { store.zoomOut() }
     @objc func zoomToFit(_ sender: Any?) { store.zoomToFit() }
@@ -327,6 +328,11 @@ final class DezzyDocument: NSDocument {
             return !store.selection.isEmpty && store.selectionTransformSession == nil
         case #selector(selectSubject(_:)):
             return store.selectedLayerEffectivelyVisible
+        case #selector(toggleQuickMask(_:)):
+            // The title is the state, like the clipping-mask item's.
+            (item as? NSMenuItem)?.title = store.quickMaskActive
+                ? "Edit in Standard Mode" : "Edit in Quick Mask Mode"
+            return true
         case #selector(cropToSelection(_:)):
             return store.canCropToSelection
         case #selector(exportFlattened(_:)):

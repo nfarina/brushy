@@ -304,6 +304,9 @@ final class CanvasHostView: NSView {
             controller.handleReturn()
             return
         case 51, 117: // delete / forward delete
+            // In Quick Mask the canvas is the channel: ⌫ must not reach the
+            // layer underneath it.
+            if store.quickMaskActive { return }
             // With a selection up ⌫ clears the selected pixels, as in
             // Photoshop; with none it still deletes the layer.
             if store.selection.isEmpty {
@@ -331,6 +334,7 @@ final class CanvasHostView: NSView {
         case "u": store.activeTool = .shape
         case "i": store.activeTool = .eyedropper
         case "g": store.activeTool = .gradient
+        case "q": store.toggleQuickMask()
         case "x": store.swapBrushColors()
         case "d": store.resetBrushColors()
         case "[":

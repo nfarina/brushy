@@ -181,7 +181,8 @@ final class ModelTests: XCTestCase {
 
         let selection = CGPath(rect: CGRect(x: 0, y: 0, width: 32 * 1e-4, height: 64 * 1e-4),
                                transform: nil)
-        let texture = MaskFactory.maskTexture(for: layer, selection: selection,
+        let texture = MaskFactory.maskTexture(for: layer,
+                                              selection: SelectionState(path: selection),
                                               featherCanvasPx: 250)
         XCTAssertEqual(texture.width, 64)
         XCTAssertEqual(texture.height, 64)

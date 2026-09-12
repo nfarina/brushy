@@ -291,6 +291,12 @@ enum MainMenuBuilder {
                        keyEquivalent: "")
         select.addItem(submenu: modify, title: "Modify")
         select.addItem(.separator())
+        // Photoshop has no menu item for this at all (it is the toolbar toggle
+        // and Q); one here makes the mode discoverable and the key visible.
+        select.addItem(withTitle: "Edit in Quick Mask Mode",
+                       action: #selector(DezzyDocument.toggleQuickMask(_:)),
+                       keyEquivalent: "")
+        select.addItem(.separator())
         select.addItem(withTitle: "Transform Selection",
                        action: #selector(DezzyDocument.transformSelection(_:)),
                        keyEquivalent: "")

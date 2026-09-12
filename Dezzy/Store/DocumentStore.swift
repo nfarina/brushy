@@ -19,6 +19,12 @@ final class DocumentStore: ObservableObject {
         didSet { renderVersion &+= 1 }
     }
     @Published private(set) var selection: SelectionState = .empty
+    /// Photoshop's Quick Mask (Q): while this is non-nil the selection is being
+    /// PAINTED instead of drawn — a canvas-sized 8-bit channel (255 = selected)
+    /// shown as a red overlay, which the brush, fill and gradient target
+    /// instead of the document. Leaving the mode turns it back into a
+    /// selection. It rides in the undo snapshots, so every stroke undoes.
+    @Published private(set) var quickMask: MaskTexture?
     /// Bumped on every document change — the canvas re-renders the composite
     /// only when this (or the viewport/stroke preview) moves, so overlay-only
     /// changes like cursor hover stay cheap.
@@ -245,6 +251,9 @@ final class DocumentStore: ObservableObject {
     private struct Snapshot: Equatable {
         var document: Document
         var selection: SelectionState
+        /// The Quick Mask channel while that mode is on — painting it is an
+        /// ordinary edit, so it has to undo like one.
+        var quickMask: MaskTexture?
         var selectedLayerID: UUID?
         var selectedGroupID: UUID?
         /// The whole multi-selection, restored with the same
@@ -267,6 +276,7 @@ final class DocumentStore: ObservableObject {
         static func == (a: Snapshot, b: Snapshot) -> Bool {
             a.document == b.document
                 && a.selection == b.selection
+                && a.quickMask == b.quickMask
                 && a.selectedLayerID == b.selectedLayerID
                 && a.selectedGroupID == b.selectedGroupID
                 && a.selectedLayerIDs == b.selectedLayerIDs
@@ -335,6 +345,7 @@ final class DocumentStore: ObservableObject {
         // `didSet` doesn't fire during init, so the set is seeded by hand.
         self.selectedLayerIDs = Set(document.layers.last.map { [$0.id] } ?? [])
         history = [Snapshot(document: document, selection: .empty,
+                            quickMask: nil,
                             selectedLayerID: selectedLayerID,
                             selectedGroupID: nil,
                             selectedLayerIDs: selectedLayerIDs,
@@ -428,6 +439,9 @@ final class DocumentStore: ObservableObject {
                 selection newSelection: SelectionState? = nil) {
         let snapshot = Snapshot(document: newDocument,
                                 selection: newSelection ?? selection,
+                                // Like `selectedLayerID`: ops that change the
+                                // Quick Mask assign it before committing.
+                                quickMask: quickMask,
                                 selectedLayerID: selectedLayerID,
                                 selectedGroupID: selectedGroupID,
                                 selectedLayerIDs: selectedLayerIDs,
@@ -483,7 +497,15 @@ final class DocumentStore: ObservableObject {
         var sources: [UUID: Int] = [:]
         var masks: [UUID: Int] = [:]
 
-        init(_ document: Document) {
+        init(_ snapshot: Snapshot) {
+            let document = snapshot.document
+            // A Quick Mask channel and a selection's alpha are canvas-sized
+            // buffers riding in the snapshot, so they are charged to the
+            // budget exactly like layer masks — and, being copy-on-write,
+            // counted once across the snapshots that share them.
+            for texture in [snapshot.quickMask, snapshot.selection.alpha?.texture].compactMap({ $0 }) {
+                masks[texture.storageIdentity] = texture.width * texture.height
+            }
             for layer in document.layers {
                 // `sourceID` is the pixel identity by invariant: changing a
                 // layer's pixels means a fresh `sourceID` (the .dezzy
@@ -497,7 +519,7 @@ final class DocumentStore: ObservableObject {
     }
 
     private func retainStorage(of snapshot: Snapshot) {
-        let storage = SnapshotStorage(snapshot.document)
+        let storage = SnapshotStorage(snapshot)
         historyCosts.append(storage)
         for (key, bytes) in storage.sources {
             if var entry = historySourceRefs[key] {
@@ -640,6 +662,7 @@ final class DocumentStore: ObservableObject {
         document = snapshot.document
         if document.canvasSize != previousCanvasSize { recenterViewport() }
         selection = snapshot.selection
+        quickMask = snapshot.quickMask
         if let id = snapshot.selectedLayerID, document[layerID: id] != nil {
             selectedLayerID = id
         } else if let id = selectedLayerID, document[layerID: id] == nil {
@@ -693,11 +716,13 @@ final class DocumentStore: ObservableObject {
         selectionTransformSession = nil
         activeGuides = []
         previewSelectionPath = nil
+        movingSelectionOutline = false
         // Deliberate: a mid-drag brush stroke is dropped by history
         // stepping. The stroke was never committed, and baking it against a
         // different snapshot would paint pixels the user never saw.
         activeStroke = nil
         strokePreview = nil
+        quickMaskStrokeBase = nil
         textSession = nil
     }
 
@@ -711,9 +736,11 @@ final class DocumentStore: ObservableObject {
         discardSessions()
         document = newDocument
         selection = .empty
+        quickMask = nil
         selectedLayerID = newDocument.layers.last?.id
         selectedGroupID = nil
         history = [Snapshot(document: newDocument, selection: .empty,
+                            quickMask: nil,
                             selectedLayerID: selectedLayerID,
                             selectedGroupID: nil,
                             selectedLayerIDs: selectedLayerIDs,
@@ -1644,7 +1671,7 @@ final class DocumentStore: ObservableObject {
         // instead — the same split Copy uses (`writeCopy`), so the pixels
         // stay exact rather than being multiplied down twice.
         let deep = layer.source.bitsPerComponent > 8
-        let texture = MaskFactory.selectionTexture(rect: rect, selection: path,
+        let texture = MaskFactory.selectionTexture(rect: rect, selection: selection,
                                                    featherCanvasPx: CGFloat(featherAmount))
         var bakeLayer = layer
         bakeLayer.opacity = 1
@@ -1663,7 +1690,9 @@ final class DocumentStore: ObservableObject {
         var holed = layer
         if cutting {
             guard layer.isPaintable,
-                  let cut = Self.pixelsFilled(layer, path: path, color: nil) else { return nil }
+                  let cut = Self.pixelsFilled(layer, path: path, color: nil,
+                                              coverage: selectionCoverage(for: layer))
+            else { return nil }
             holed = cut
         }
 
@@ -1890,6 +1919,7 @@ final class DocumentStore: ObservableObject {
 
     func commitCropSession() {
         guard let session = cropSession else { return }
+        endQuickMaskBeforeCanvasChange()
         var rect = session.rect.standardized
         rect = CGRect(x: rect.origin.x.rounded(), y: rect.origin.y.rounded(),
                       width: max(1, rect.width.rounded()), height: max(1, rect.height.rounded()))
@@ -1918,7 +1948,30 @@ final class DocumentStore: ObservableObject {
 
     // MARK: - Selection (Stage A)
 
+    /// Commits a new selection, saying so when the change could not carry the
+    /// selection's coverage channel with it (Select ▸ Modify, a boolean, a
+    /// scaled Transform Selection). Dropping it is the deliberate
+    /// simplification — rebuilding a soft edge through path morphology is not
+    /// worth what it costs — but it must never happen silently.
+    private func commitSelection(_ actionName: String, _ newSelection: SelectionState) {
+        let losesAlpha = selection.hasAlpha && !newSelection.hasAlpha && !newSelection.isEmpty
+        commit(actionName, document: document, selection: newSelection)
+        if losesAlpha {
+            showToast("\(actionName) made the selection's soft edges hard")
+        }
+    }
+
+    /// True (with a hint) while the selection is being painted instead of
+    /// drawn — the Quick Mask channel is the selection then, so the selection
+    /// commands stay out of its way.
+    private var blockedByQuickMask: Bool {
+        guard quickMaskActive else { return false }
+        brushHint = "Quick Mask is on — press Q to turn it back into a selection"
+        return true
+    }
+
     func combineSelection(_ path: CGPath, mode: SelectionState.CombineMode) {
+        guard !blockedByQuickMask else { previewSelectionPath = nil; return }
         // A new selection ends a float's life: it lands first, as its own
         // history entry (Photoshop).
         landSelectionFloat()
@@ -1932,10 +1985,21 @@ final class DocumentStore: ObservableObject {
         case .add: name = "Add to Selection"
         case .subtract: name = "Subtract from Selection"
         }
-        commit(name, document: document, selection: newSelection)
+        commitSelection(name, newSelection)
+    }
+
+    /// A selection that arrived as pixels (⌘-clicked layer alpha, Quick Mask):
+    /// it replaces whatever was selected, coverage and all.
+    func replaceSelection(_ newSelection: SelectionState, actionName: String) {
+        landSelectionFloat()
+        commitAnySelectionTransformSession()
+        previewSelectionPath = nil
+        guard newSelection != selection else { return }
+        commit(actionName, document: document, selection: newSelection)
     }
 
     func deselect() {
+        guard !blockedByQuickMask else { return }
         landSelectionFloat()
         commitAnySelectionTransformSession()
         previewSelectionPath = nil
@@ -1944,19 +2008,81 @@ final class DocumentStore: ObservableObject {
     }
 
     func invertSelection() {
+        // In Quick Mask, Inverse inverts the channel — the mask IS the
+        // selection, and inverting it is both what the user means and what
+        // Photoshop's painted mask does.
+        if let texture = quickMask {
+            var inverted = texture
+            inverted.mutate { data in
+                for index in data.indices { data[index] = 255 &- data[index] }
+            }
+            quickMask = inverted
+            commit("Inverse", document: document)
+            return
+        }
         landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
-        commit("Inverse", document: document,
-               selection: selection.inverted(in: document.canvasRect))
+        commitSelection("Inverse", selection.inverted(in: document.canvasRect))
     }
 
     func selectAll() {
+        guard !blockedByQuickMask else { return }
         landSelectionFloat()
         commitAnySelectionTransformSession()
         let path = CGPath(rect: document.canvasRect, transform: nil)
         commit("Select All", document: document,
                selection: SelectionState.empty.combining(path, mode: .replace))
+    }
+
+    // MARK: - Quick Mask (Q)
+
+    var quickMaskActive: Bool { quickMask != nil }
+
+    /// Q: into the mode and back out again.
+    func toggleQuickMask() {
+        if quickMaskActive { exitQuickMask() } else { enterQuickMask() }
+    }
+
+    /// The channel is canvas-sized and canvas-aligned, so a canvas that
+    /// changes size underneath it would leave it misaligned: the mode ends
+    /// first, handing back an ordinary selection that crops and scales with
+    /// the document like any other.
+    private func endQuickMaskBeforeCanvasChange() {
+        guard quickMaskActive else { return }
+        exitQuickMask()
+    }
+
+    /// Turns the selection into a channel to paint. With nothing selected the
+    /// channel starts fully selected (255) — "no selection" already means
+    /// "the whole layer" everywhere else, and Photoshop opens Quick Mask with
+    /// no red for the same reason.
+    func enterQuickMask() {
+        commitPendingSessions()
+        guard quickMask == nil else { return }
+        let rect = document.canvasRect.integral
+        let width = rect.width.rounded().saturatingInt
+        let height = rect.height.rounded().saturatingInt
+        guard width >= 1, height >= 1 else { return }
+        quickMask = selection.isEmpty ? MaskTexture(width: width, height: height, fill: 255)
+                                      : selection.coverageTexture(over: rect)
+        // The selection lives in the channel now; the ants come back on exit.
+        commit("Quick Mask", document: document, selection: .empty)
+        showToast("Quick Mask — paint with black to mask, white to select. Q to finish")
+    }
+
+    /// Traces the channel back into a selection: the 50% contour becomes the
+    /// ants and the channel itself stays on as the selection's coverage, so a
+    /// soft-painted edge survives into Fill, Copy and Add Layer Mask.
+    func exitQuickMask() {
+        guard quickMask != nil else { return }
+        commitPendingSessions()
+        // A stroke landed by `commitPendingSessions` may have replaced it.
+        guard let texture = quickMask else { return }
+        let rect = CGRect(x: 0, y: 0, width: texture.width, height: texture.height)
+        let restored = SelectionState.coverage(texture, rect: rect)
+        quickMask = nil
+        commit("Quick Mask Selection", document: document, selection: restored)
     }
 
     // MARK: - Adjustment layers
@@ -2041,7 +2167,7 @@ final class DocumentStore: ObservableObject {
         // Baked at full opacity with the layer's opacity carried across, the
         // same split Copy and the floating selection use.
         let deep = layer.source.bitsPerComponent > 8
-        let texture = MaskFactory.selectionTexture(rect: rect, selection: path,
+        let texture = MaskFactory.selectionTexture(rect: rect, selection: selection,
                                                    featherCanvasPx: CGFloat(featherAmount))
         var bakeLayer = layer
         bakeLayer.opacity = 1
@@ -2055,7 +2181,9 @@ final class DocumentStore: ObservableObject {
 
         var doc = document
         if cutting {
-            guard let holed = Self.pixelsFilled(layer, path: path, color: nil) else { return }
+            guard let holed = Self.pixelsFilled(layer, path: path, color: nil,
+                                                coverage: selectionCoverage(for: layer))
+            else { return }
             doc = doc.replacingLayer(holed)
         }
         doc.layers.insert(lifted, at: index + 1)
@@ -2067,25 +2195,28 @@ final class DocumentStore: ObservableObject {
     }
 
     /// ⌘-click a layer's thumbnail: select its pixels (Photoshop's "load as
-    /// selection"). Selections here are paths rather than 8-bit masks, so the
-    /// layer's alpha is thresholded at 50% and traced — a soft edge comes back
-    /// hard, which is the one thing this cannot reproduce.
+    /// selection"). The layer's alpha becomes the selection's coverage, so a
+    /// feathered or antialiased layer comes back exactly as soft as it is; the
+    /// traced 50% contour is what the ants draw.
     func selectPixels(of layerID: UUID) {
+        guard !blockedByQuickMask else { return }
         commitPendingSessions()
         guard let layer = document[layerID: layerID], layer.kind.adjustmentSpec == nil,
               let pixels = pixelBuffer(RenderEngine.shared.layerImage(layer,
                                                                       outputTransform: .identity))
         else { return }
-        var covered = [Bool](repeating: false, count: pixels.width * pixels.height)
-        for index in covered.indices where pixels.data[index * 4 + 3] >= 128 {
-            covered[index] = true
+        var coverage = Data(count: pixels.width * pixels.height)
+        for index in 0..<(pixels.width * pixels.height) {
+            coverage[index] = pixels.data[index * 4 + 3]
         }
-        let path = MagicWand.path(from: covered, width: pixels.width, height: pixels.height)
-        guard !path.isEmpty else {
+        let texture = MaskTexture(width: pixels.width, height: pixels.height, data: coverage)
+        let rect = document.canvasRect.integral
+        let loaded = SelectionState.coverage(texture, rect: rect)
+        guard !loaded.isEmpty else {
             brushHint = "“\(layer.name)” has no pixels inside the canvas to select"
             return
         }
-        combineSelection(path, mode: .replace)
+        replaceSelection(loaded, actionName: "Select")
     }
 
     // MARK: - Magic Wand
@@ -2160,7 +2291,7 @@ final class DocumentStore: ObservableObject {
         landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
-        commit("Grow Selection", document: document, selection: selection.grown(by: radius))
+        commitSelection("Grow Selection", selection.grown(by: radius))
     }
 
     /// Contracting past the shape's half-width legitimately commits `.empty` —
@@ -2169,14 +2300,14 @@ final class DocumentStore: ObservableObject {
         landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
-        commit("Contract Selection", document: document, selection: selection.contracted(by: radius))
+        commitSelection("Contract Selection", selection.contracted(by: radius))
     }
 
     func borderSelection(width: CGFloat) {
         landSelectionFloat()
         commitAnySelectionTransformSession()
         guard !selection.isEmpty else { return }
-        commit("Border Selection", document: document, selection: selection.bordered(width: width))
+        commitSelection("Border Selection", selection.bordered(width: width))
     }
 
     // MARK: - Transform Selection (Select menu; gestures on the selection)
@@ -2202,8 +2333,8 @@ final class DocumentStore: ObservableObject {
         guard let session = selectionTransformSession else { return }
         selectionTransformSession = nil
         guard session.hasChanges else { return }
-        commit("Transform Selection", document: document,
-               selection: selection.transformed(by: session.currentTransform))
+        commitSelection("Transform Selection",
+                        selection.transformed(by: session.currentTransform))
     }
 
     /// Esc. The committed selection was never changed mid-session, so
@@ -2216,6 +2347,42 @@ final class DocumentStore: ObservableObject {
     /// selection transform first, exactly like tool switches land Cmd+T.
     func commitAnySelectionTransformSession() {
         if selectionTransformSession != nil { commitSelectionTransformSession() }
+    }
+
+    // MARK: - Dragging the outline (marquee/lasso tools)
+
+    /// Photoshop: with a selection tool active, a drag that starts INSIDE the
+    /// selection moves the outline, not the pixels — the ants slide over the
+    /// image and nothing in the document changes.
+    ///
+    /// Live like a layer drag: `previewSelectionPath` shows the moved outline
+    /// mid-drag and `moveSelectionOutline` commits the whole gesture as one
+    /// history entry. A whole-pixel translation, so a coverage channel rides
+    /// along untouched.
+    func selectionContains(_ canvasPoint: CGPoint) -> Bool {
+        guard let path = selection.path, selectionFloat == nil,
+              selectionTransformSession == nil else { return false }
+        return path.contains(canvasPoint, using: .winding)
+    }
+
+    /// True while the ants themselves are being dragged — the overlay then
+    /// draws the preview outline only, not the one it came from.
+    @Published private(set) var movingSelectionOutline = false
+
+    func previewSelectionOutline(movedBy delta: CGPoint) {
+        guard let path = selection.path else { return }
+        var shift = CGAffineTransform(translationX: delta.x.rounded(), y: delta.y.rounded())
+        previewSelectionPath = path.copy(using: &shift)
+        movingSelectionOutline = true
+    }
+
+    func moveSelectionOutline(by delta: CGPoint) {
+        previewSelectionPath = nil
+        movingSelectionOutline = false
+        let shift = CGAffineTransform(translationX: delta.x.rounded(), y: delta.y.rounded())
+        guard !selection.isEmpty, shift != .identity else { return }
+        commit("Move Selection Outline", document: document,
+               selection: selection.transformed(by: shift))
     }
 
     // MARK: - Select Subject (Select menu; owner-requested exception)
@@ -2342,7 +2509,7 @@ final class DocumentStore: ObservableObject {
         guard var layer = selectedLayer, layer.mask == nil else { return }
         commitPendingSessions()
         let texture = MaskFactory.maskTexture(for: layer,
-                                              selection: selection.path,
+                                              selection: selection,
                                               featherCanvasPx: CGFloat(featherAmount))
         layer.mask = Mask(texture: texture, isEnabled: true)
         maskTargeted = true
@@ -2420,10 +2587,15 @@ final class DocumentStore: ObservableObject {
         case paint(Layer)
         /// A photo or a text/shape layer: the edit rasterizes it first.
         case needsRasterize(Layer)
+        /// Quick Mask is on: the stroke paints the selection, not the document.
+        case quickMask(MaskTexture)
         case blocked(String)
     }
 
     private func resolveStrokeTarget(eraser: Bool) -> StrokeTargetResolution {
+        // Quick Mask outranks everything: in that mode the canvas is the
+        // channel, whatever layer happens to be selected.
+        if let texture = quickMask { return .quickMask(texture) }
         guard let layer = selectedLayer else {
             return .blocked("Select a layer to paint on")
         }
@@ -2455,6 +2627,7 @@ final class DocumentStore: ObservableObject {
         case .mask(let layer): return "Painting mask of “\(layer.name)” — black hides, white reveals"
         case .paint(let layer): return "Painting “\(layer.name)”"
         case .needsRasterize(let layer): return "Painting will rasterize “\(layer.name)”"
+        case .quickMask: return "Painting the Quick Mask — black masks, white selects"
         case .blocked(let reason): return reason
         }
     }
@@ -2480,6 +2653,24 @@ final class DocumentStore: ObservableObject {
         switch resolveStrokeTarget(eraser: eraser) {
         case .blocked(let reason):
             brushHint = reason
+            return
+        case .quickMask(let texture):
+            // The channel is canvas-sized and canvas-aligned, so there is no
+            // layer transform to go through. The eraser removes mask (white)
+            // here rather than adding it: in Quick Mask the red IS the paint.
+            quickMaskStrokeBase = texture
+            strokeCanvasToLocal = .identity
+            activeStroke = BrushStroke(
+                target: .quickMask,
+                isEraser: eraser,
+                color: foregroundColor,
+                maskValue: eraser ? 255 : Self.luminance255(of: foregroundColor),
+                opacityCeiling: brushOpacity / 100,
+                radius: CGFloat(brushSize) / 2,
+                hardness: brushHardness / 100,
+                targetWidth: texture.width,
+                targetHeight: texture.height)
+            continueBrushStroke(to: canvasPoint)
             return
         case .needsRasterize(let target):
             // The stroke lands on this very click: rasterize, say so, paint.
@@ -2516,6 +2707,11 @@ final class DocumentStore: ObservableObject {
     }
 
     private var lastStrokePreviewTime: CFAbsoluteTime = 0
+    /// The Quick Mask channel as it was when the current stroke began. Each
+    /// frame re-bakes the whole accumulated stroke from it, so the live channel
+    /// is the preview — there is no separate preview path to keep in step, and
+    /// the red overlay shows exactly what will be committed.
+    private var quickMaskStrokeBase: MaskTexture?
 
     func continueBrushStroke(to canvasPoint: CGPoint) {
         guard activeStroke != nil else { return }
@@ -2524,6 +2720,15 @@ final class DocumentStore: ObservableObject {
         // expensive part, so cap it near display rate. The bake at stroke end
         // always uses the complete coverage.
         let now = CFAbsoluteTimeGetCurrent()
+        if let base = quickMaskStrokeBase, let stroke = activeStroke,
+           case .quickMask = stroke.target {
+            guard quickMask == nil || now - lastStrokePreviewTime >= 0.012 else { return }
+            lastStrokePreviewTime = now
+            if let preview = stroke.preview() {
+                quickMask = RenderEngine.shared.bakeMaskStroke(into: base, stroke: preview)
+            }
+            return
+        }
         if strokePreview == nil || now - lastStrokePreviewTime >= 0.012 {
             lastStrokePreviewTime = now
             strokePreview = activeStroke?.preview()
@@ -2536,9 +2741,21 @@ final class DocumentStore: ObservableObject {
         guard let stroke = activeStroke else { return }
         activeStroke = nil
         strokePreview = nil
-        guard let preview = stroke.preview(),
-              var layer = document[layerID: stroke.layerID] else { return }
+        guard let preview = stroke.preview() else {
+            quickMaskStrokeBase = nil
+            return
+        }
+        if case .quickMask = stroke.target {
+            guard let base = quickMaskStrokeBase else { return }
+            quickMaskStrokeBase = nil
+            quickMask = RenderEngine.shared.bakeMaskStroke(into: base, stroke: preview)
+            commit(stroke.isEraser ? "Eraser Stroke" : "Brush Stroke", document: document)
+            return
+        }
+        guard let id = stroke.layerID, var layer = document[layerID: id] else { return }
         switch stroke.target {
+        case .quickMask:
+            return // handled above; `layerID` is nil for it
         case .mask:
             guard let mask = layer.mask else { return }
             layer.mask?.texture = RenderEngine.shared.bakeMaskStroke(into: mask.texture,
@@ -2730,10 +2947,13 @@ final class DocumentStore: ObservableObject {
         return nil
     }
 
-    var canFillSelection: Bool { resolveFillTarget() != nil }
+    var canFillSelection: Bool { quickMaskActive || resolveFillTarget() != nil }
 
     /// Shown in the Fill dialog so it's unambiguous what will be filled.
     var fillTargetDescription: String {
+        if quickMaskActive {
+            return "Fills the Quick Mask with the colour's luminance — black masks, white selects."
+        }
         guard let layer = selectedLayer else { return "Select a layer first." }
         switch resolveFillTarget() {
         case .mask:
@@ -2749,10 +2969,31 @@ final class DocumentStore: ObservableObject {
         fillSelection(using: useBackground ? backgroundColor : foregroundColor)
     }
 
+    /// Source-space coverage of the current selection for `layer`, or nil when
+    /// the selection is plain geometry — then the callers' path clip is both
+    /// exact and cheaper, and behaviour is unchanged from before coverage
+    /// existed.
+    private func selectionCoverage(for layer: Layer) -> MaskTexture? {
+        guard selection.hasAlpha else { return nil }
+        return MaskFactory.maskTexture(for: layer, selection: selection,
+                                       featherCanvasPx: CGFloat(featherAmount))
+    }
+
     /// Fills the selection (or the whole layer when nothing is selected) with
     /// `color` — on masks, with its luminance.
     func fillSelection(using color: CGColor) {
         commitPendingSessions()
+        // In Quick Mask the fill paints the channel: ⌥⌫ floods it with the
+        // foreground's luminance, ⌘⌫ with the background's.
+        if let texture = quickMask {
+            let path = CGPath(rect: document.canvasRect, transform: nil)
+            guard let filled = Self.maskFilled(texture, gridToCanvas: .identity, path: path,
+                                               gray: CGFloat(Self.luminance255(of: color)) / 255,
+                                               coverage: nil) else { return }
+            quickMask = filled
+            commit("Fill Quick Mask", document: document)
+            return
+        }
         guard let target = resolveFillTarget() else {
             // Rasterize and carry straight on with the fill that asked for it.
             if let layer = selectedLayer, selectedLayerEffectivelyVisible,
@@ -2768,12 +3009,16 @@ final class DocumentStore: ObservableObject {
         switch target {
         case .mask(let layer):
             updated = Self.maskFilled(layer, path: path,
-                                      gray: CGFloat(Self.luminance255(of: color)) / 255)
+                                      gray: CGFloat(Self.luminance255(of: color)) / 255,
+                                      coverage: selectionCoverage(for: layer))
         case .pixels(let layer):
             // Fill what was asked for, even where the layer has no pixels yet.
             let host = Self.grown(layer, toCover: path.boundingBoxOfPath,
                                   canvasRect: document.canvasRect).layer
-            updated = Self.pixelsFilled(host, path: path, color: color)
+            // Coverage is source-space, so it has to be built against the
+            // GROWN grid — the one the fill actually draws into.
+            updated = Self.pixelsFilled(host, path: path, color: color,
+                                        coverage: selectionCoverage(for: host))
         }
         guard let updated else { return }
         commit("Fill Selection", document: document.replacingLayer(updated))
@@ -2781,12 +3026,34 @@ final class DocumentStore: ObservableObject {
 
     /// Paints `gray` over `path` (canvas space) in the layer's mask.
     /// Shared by Fill Selection and Cut (which fills black).
-    private static func maskFilled(_ layer: Layer, path: CGPath, gray: CGFloat) -> Layer? {
-        guard var mask = layer.mask, layer.transform.isInvertible else { return nil }
-        var texture = mask.texture
+    private static func maskFilled(_ layer: Layer, path: CGPath, gray: CGFloat,
+                                   coverage: MaskTexture?) -> Layer? {
+        guard var mask = layer.mask, layer.transform.isInvertible,
+              let texture = maskFilled(mask.texture, gridToCanvas: maskGridTransform(of: layer),
+                                       path: path, gray: gray, coverage: coverage) else {
+            return nil
+        }
+        mask.texture = texture
+        var updated = layer
+        updated.mask = mask
+        return updated
+    }
+
+    /// The same fill against a bare channel. `gridToCanvas` maps the texture's
+    /// own grid into canvas space — a layer mask goes through its layer's
+    /// transform, the Quick Mask is already canvas-aligned (identity) — which
+    /// is what lets one implementation serve both.
+    ///
+    /// `coverage` (grid-sized) modulates the fill where the selection carries
+    /// partial alpha; with none the path clip alone decides, exactly as before.
+    private static func maskFilled(_ texture: MaskTexture, gridToCanvas: CGAffineTransform,
+                                   path: CGPath, gray: CGFloat,
+                                   coverage: MaskTexture?) -> MaskTexture? {
+        guard gridToCanvas.isInvertible else { return nil }
+        var texture = texture
         let width = texture.width
         let height = texture.height
-        let inverse = layer.transform.inverted()
+        let inverse = gridToCanvas.inverted()
         texture.mutate { data in
             data.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
                 guard let base = buffer.baseAddress,
@@ -2797,22 +3064,49 @@ final class DocumentStore: ObservableObject {
                                           bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
                     return
                 }
+                // Grid space, so the clip goes on before the transform.
+                if let image = coverageImage(coverage, width: width, height: height) {
+                    ctx.clip(to: CGRect(x: 0, y: 0, width: width, height: height), mask: image)
+                }
                 ctx.setFillColor(gray: gray, alpha: 1)
                 ctx.concatenate(inverse)
                 ctx.addPath(path)
                 ctx.fillPath(using: .winding)
             }
         }
-        mask.texture = texture
-        var updated = layer
-        updated.mask = mask
-        return updated
+        return texture
+    }
+
+    /// A mask texture's own grid → canvas. Masks are stored at source
+    /// resolution, so this is the layer transform in every real document; the
+    /// scale term is defensive, matching `maskGradiented`'s.
+    private static func maskGridTransform(of layer: Layer) -> CGAffineTransform {
+        guard let texture = layer.mask?.texture, texture.width > 0, texture.height > 0 else {
+            return layer.transform
+        }
+        let sx = layer.sourceSize.width / CGFloat(texture.width)
+        let sy = layer.sourceSize.height / CGFloat(texture.height)
+        return CGAffineTransform(scaleX: sx, y: sy).concatenating(layer.transform)
+    }
+
+    /// Coverage as a clip mask, only when it matches the grid it is about to
+    /// clip (a mismatch means something resized underneath it — then the path
+    /// clip alone is the safe answer, not a stretched channel).
+    private static func coverageImage(_ coverage: MaskTexture?,
+                                      width: Int, height: Int) -> CGImage? {
+        guard let coverage, coverage.width == width, coverage.height == height else { return nil }
+        return coverage.cgImage
     }
 
     /// Draws over `path` (canvas space) in the layer's pixels — a colour fill,
     /// or clearing to transparent when `color` is nil (Cut). The result gets a
     /// fresh sourceID: new pixels never reuse the old identity.
-    private static func pixelsFilled(_ layer: Layer, path: CGPath, color: CGColor?) -> Layer? {
+    ///
+    /// `coverage` (source-space) is the selection's alpha channel where it has
+    /// one: the fill then blends by coverage and the clear takes alpha out in
+    /// proportion, so a soft-edged selection cuts a soft-edged hole.
+    private static func pixelsFilled(_ layer: Layer, path: CGPath, color: CGColor?,
+                                     coverage: MaskTexture? = nil) -> Layer? {
         guard layer.transform.isInvertible,
               let ctx = CGContext(data: nil,
                                   width: layer.source.width, height: layer.source.height,
@@ -2823,14 +3117,30 @@ final class DocumentStore: ObservableObject {
         }
         ctx.draw(layer.source, in: layer.sourceRect)
         ctx.saveGState()
-        ctx.concatenate(layer.transform.inverted())
-        ctx.addPath(path)
-        ctx.clip()
+        let region: CGRect
+        if let image = coverageImage(coverage, width: layer.source.width,
+                                     height: layer.source.height) {
+            ctx.clip(to: layer.sourceRect, mask: image)
+            region = layer.sourceRect
+        } else {
+            ctx.concatenate(layer.transform.inverted())
+            ctx.addPath(path)
+            ctx.clip()
+            region = ctx.boundingBoxOfClipPath
+        }
         if let color {
             ctx.setFillColor(color)
-            ctx.fill(ctx.boundingBoxOfClipPath)
+            ctx.fill(region)
+        } else if coverage != nil {
+            // Soft erase: destination-out with an opaque source takes the
+            // clip's coverage straight out of the existing alpha. (`clear`
+            // ignores a mask clip's fractional coverage, so the hard-edged
+            // path below keeps using it and this branch does not.)
+            ctx.setBlendMode(.destinationOut)
+            ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.fill(region)
         } else {
-            ctx.clear(ctx.boundingBoxOfClipPath)
+            ctx.clear(region)
         }
         ctx.restoreGState()
         guard let image = ctx.makeImage() else { return nil }
@@ -2848,6 +3158,9 @@ final class DocumentStore: ObservableObject {
     var gradientTargetDescription: String? {
         if let hint = brushHint { return hint }
         guard activeTool == .gradient else { return nil }
+        if quickMaskActive {
+            return "Gradient fades the Quick Mask — a soft-edged selection"
+        }
         guard let layer = selectedLayer else { return "Select a layer first" }
         switch resolveFillTarget() {
         case .mask:
@@ -2872,6 +3185,21 @@ final class DocumentStore: ObservableObject {
         guard start != end else { return }
         commitPendingSessions()
         brushHint = nil
+        // A gradient across the Quick Mask is the reason to have both: it is
+        // how a selection gets a long soft fade.
+        if let texture = quickMask {
+            guard let ramped = Self.maskGradiented(
+                texture, gridToCanvas: .identity,
+                line: GradientLine(start: start, end: end),
+                shape: gradientShape, reversed: gradientReversed,
+                toTransparent: gradientToTransparent,
+                startGray: Self.luminance255(of: foregroundColor),
+                endGray: Self.luminance255(of: backgroundColor),
+                selectionPath: nil, selectionCoverage: nil) else { return }
+            quickMask = ramped
+            commit("Gradient", document: document)
+            return
+        }
         guard let target = resolveFillTarget() else {
             if let layer = selectedLayer, selectedLayerEffectivelyVisible,
                Self.needsRasterize(layer),
@@ -2891,7 +3219,8 @@ final class DocumentStore: ObservableObject {
                                           toTransparent: gradientToTransparent,
                                           startGray: Self.luminance255(of: foregroundColor),
                                           endGray: Self.luminance255(of: backgroundColor),
-                                          selectionPath: selection.path)
+                                          selectionPath: selection.path,
+                                          selectionCoverage: selectionCoverage(for: layer))
         case .pixels(let layer):
             // A gradient covers the selection, or the whole layer when there
             // is none — which for a small layer means growing it first.
@@ -2903,7 +3232,8 @@ final class DocumentStore: ObservableObject {
                                             toTransparent: gradientToTransparent,
                                             startColor: foregroundColor,
                                             endColor: backgroundColor,
-                                            selectionPath: selection.path)
+                                            selectionPath: selection.path,
+                                            selectionCoverage: selectionCoverage(for: layer))
         }
         guard let updated else { return }
         commit("Gradient", document: document.replacingLayer(updated))
@@ -2922,20 +3252,48 @@ final class DocumentStore: ObservableObject {
                                        shape: GradientShape, reversed: Bool,
                                        toTransparent: Bool,
                                        startGray: UInt8, endGray: UInt8,
-                                       selectionPath: CGPath?) -> Layer? {
-        guard var mask = layer.mask, layer.transform.isInvertible else { return nil }
-        var texture = mask.texture
+                                       selectionPath: CGPath?,
+                                       selectionCoverage: MaskTexture?) -> Layer? {
+        guard var mask = layer.mask, layer.transform.isInvertible,
+              let texture = maskGradiented(mask.texture,
+                                           gridToCanvas: maskGridTransform(of: layer),
+                                           line: line, shape: shape, reversed: reversed,
+                                           toTransparent: toTransparent,
+                                           startGray: startGray, endGray: endGray,
+                                           selectionPath: selectionPath,
+                                           selectionCoverage: selectionCoverage) else {
+            return nil
+        }
+        mask.texture = texture
+        var updated = layer
+        updated.mask = mask
+        return updated
+    }
+
+    /// The same ramp against a bare channel — a layer mask through its layer's
+    /// transform, or the canvas-aligned Quick Mask (identity). See
+    /// `maskFilled(_:gridToCanvas:…)` for why the grid transform is the seam.
+    private static func maskGradiented(_ texture: MaskTexture,
+                                       gridToCanvas transform: CGAffineTransform,
+                                       line: GradientLine,
+                                       shape: GradientShape, reversed: Bool,
+                                       toTransparent: Bool,
+                                       startGray: UInt8, endGray: UInt8,
+                                       selectionPath: CGPath?,
+                                       selectionCoverage: MaskTexture?) -> MaskTexture? {
+        guard transform.isInvertible else { return nil }
+        var texture = texture
         let width = texture.width
         let height = texture.height
         guard width > 0, height > 0 else { return nil }
-        // Mask grid → source units (1 in practice: keeps masks at source
-        // resolution — scale defensively like `Document.maskValue` does).
-        let sx = layer.sourceSize.width / CGFloat(width)
-        let sy = layer.sourceSize.height / CGFloat(height)
 
         // Selection coverage over the mask grid, 255 = fully affected; no
-        // selection means the whole target is covered.
-        let coverage: Data? = selectionPath.map { path in
+        // selection means the whole target is covered. A selection with its own
+        // alpha channel hands it over ready-made.
+        var coverage: Data?
+        if let ready = selectionCoverage, ready.width == width, ready.height == height {
+            coverage = ready.data
+        } else if let path = selectionPath {
             var buffer = Data(repeating: 0, count: width * height)
             buffer.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
                 guard let base = raw.baseAddress,
@@ -2947,25 +3305,23 @@ final class DocumentStore: ObservableObject {
                     return
                 }
                 ctx.setFillColor(gray: 1, alpha: 1)
-                ctx.scaleBy(x: 1 / sx, y: 1 / sy)
-                ctx.concatenate(layer.transform.inverted())
+                ctx.concatenate(transform.inverted())
                 ctx.addPath(path)
                 ctx.fillPath(using: .winding)
             }
-            return buffer
+            coverage = buffer
         }
 
         let g0 = CGFloat(startGray)
         let g1 = CGFloat(endGray)
-        let transform = layer.transform
         texture.mutate { data in
             data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
                 guard let bytes = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
                 let bake: (UnsafePointer<UInt8>?) -> Void = { coverageBytes in
                     for row in 0..<height {
-                        // buffer row 0 is the top; y-up source
-                        // space counts down from height as rows increase.
-                        let sourceY = (CGFloat(height - row) - 0.5) * sy
+                        // buffer row 0 is the top; the y-up grid
+                        // counts down from height as rows increase.
+                        let gridY = CGFloat(height - row) - 0.5
                         let rowBase = row * width
                         for col in 0..<width {
                             let index = rowBase + col
@@ -2974,8 +3330,8 @@ final class DocumentStore: ObservableObject {
                                 cov = CGFloat(coverageBytes[index]) / 255
                                 if cov == 0 { continue }
                             }
-                            let sourcePoint = CGPoint(x: (CGFloat(col) + 0.5) * sx, y: sourceY)
-                            let t = GradientMath.parameter(of: sourcePoint.applying(transform),
+                            let gridPoint = CGPoint(x: CGFloat(col) + 0.5, y: gridY)
+                            let t = GradientMath.parameter(of: gridPoint.applying(transform),
                                                            start: line.start, end: line.end,
                                                            shape: shape, reversed: reversed)
                             let gray = toTransparent ? g0 : g0 + (g1 - g0) * t
@@ -2995,10 +3351,7 @@ final class DocumentStore: ObservableObject {
                 }
             }
         }
-        mask.texture = texture
-        var updated = layer
-        updated.mask = mask
-        return updated
+        return texture
     }
 
     /// Draws the gradient over the layer's pixels (the whole layer, or the
@@ -3011,7 +3364,8 @@ final class DocumentStore: ObservableObject {
                                          shape: GradientShape, reversed: Bool,
                                          toTransparent: Bool,
                                          startColor: CGColor, endColor: CGColor,
-                                         selectionPath: CGPath?) -> Layer? {
+                                         selectionPath: CGPath?,
+                                         selectionCoverage: MaskTexture? = nil) -> Layer? {
         guard layer.transform.isInvertible,
               let ctx = CGContext(data: nil,
                                   width: layer.source.width, height: layer.source.height,
@@ -3022,10 +3376,17 @@ final class DocumentStore: ObservableObject {
         }
         ctx.draw(layer.source, in: layer.sourceRect)
         ctx.saveGState()
-        ctx.concatenate(layer.transform.inverted())
-        if let selectionPath {
-            ctx.addPath(selectionPath)
-            ctx.clip()
+        // Coverage clips in source space, so it goes on before the transform.
+        if let image = coverageImage(selectionCoverage, width: layer.source.width,
+                                     height: layer.source.height) {
+            ctx.clip(to: layer.sourceRect, mask: image)
+            ctx.concatenate(layer.transform.inverted())
+        } else {
+            ctx.concatenate(layer.transform.inverted())
+            if let selectionPath {
+                ctx.addPath(selectionPath)
+                ctx.clip()
+            }
         }
         var start = startColor
         var end = toTransparent ? (startColor.copy(alpha: 0) ?? startColor) : endColor
@@ -3084,10 +3445,9 @@ final class DocumentStore: ObservableObject {
         }
         rect = rect.integral
         guard rect.width >= 1, rect.height >= 1 else { return }
-        let selectionTexture = selection.path.map {
-            MaskFactory.selectionTexture(rect: rect, selection: $0,
-                                         featherCanvasPx: CGFloat(featherAmount))
-        }
+        let selectionTexture = selection.isEmpty ? nil
+            : MaskFactory.selectionTexture(rect: rect, selection: selection,
+                                           featherCanvasPx: CGFloat(featherAmount))
         let deep = document.layers.contains {
             document.isEffectivelyVisible(layerID: $0.id) && $0.source.bitsPerComponent > 8
         }
@@ -3115,14 +3475,19 @@ final class DocumentStore: ObservableObject {
         switch resolveStrokeTarget(eraser: true) {
         case .blocked:
             return
+        case .quickMask:
+            return // Quick Mask has no pixels to cut
         case .mask(let target):
-            updated = Self.maskFilled(target, path: path, gray: 0)
+            updated = Self.maskFilled(target, path: path, gray: 0,
+                                      coverage: selectionCoverage(for: target))
             maskTargeted = true
         case .paint(let target):
-            updated = Self.pixelsFilled(target, path: path, color: nil)
+            updated = Self.pixelsFilled(target, path: path, color: nil,
+                                        coverage: selectionCoverage(for: target))
         case .needsRasterize(let target):
             guard let ready = autoRasterize(target, because: "to cut from it") else { return }
-            updated = Self.pixelsFilled(ready, path: path, color: nil)
+            updated = Self.pixelsFilled(ready, path: path, color: nil,
+                                        coverage: selectionCoverage(for: ready))
         }
         guard let updated else { return }
         commit("Cut", document: document.replacingLayer(updated))
@@ -3137,14 +3502,19 @@ final class DocumentStore: ObservableObject {
         switch resolveStrokeTarget(eraser: true) {
         case .blocked:
             return
+        case .quickMask:
+            return // in Quick Mask the canvas is the channel; ⌫ leaves it alone
         case .mask(let target):
-            updated = Self.maskFilled(target, path: path, gray: 0)
+            updated = Self.maskFilled(target, path: path, gray: 0,
+                                      coverage: selectionCoverage(for: target))
             maskTargeted = true
         case .paint(let target):
-            updated = Self.pixelsFilled(target, path: path, color: nil)
+            updated = Self.pixelsFilled(target, path: path, color: nil,
+                                        coverage: selectionCoverage(for: target))
         case .needsRasterize(let target):
             guard let ready = autoRasterize(target, because: "to clear part of it") else { return }
-            updated = Self.pixelsFilled(ready, path: path, color: nil)
+            updated = Self.pixelsFilled(ready, path: path, color: nil,
+                                        coverage: selectionCoverage(for: ready))
         }
         guard let updated else { return }
         commit("Clear", document: document.replacingLayer(updated))
@@ -3160,7 +3530,7 @@ final class DocumentStore: ObservableObject {
             let rect = path.boundingBoxOfPath.intersection(layer.canvasBounds).integral
             guard rect.width >= 1, rect.height >= 1 else { return false }
             let selectionTexture = MaskFactory.selectionTexture(
-                rect: rect, selection: path, featherCanvasPx: CGFloat(featherAmount))
+                rect: rect, selection: selection, featherCanvasPx: CGFloat(featherAmount))
             // Bake at full opacity — the envelope carries opacity as metadata,
             // so the pasted layer keeps it editable.
             var bakeLayer = layer
@@ -3251,12 +3621,12 @@ final class DocumentStore: ObservableObject {
                              adopted: Bool, into: Bool) {
         var layer = incoming
         layer.isVisible = true
-        if into, let path = selection.path {
+        if into, !selection.isEmpty {
             // The selection becomes the pasted layer's mask, built against its
             // final transform. It replaces any mask that travelled with the
             // layer — the selection is what Paste Into means.
             layer.mask = Mask(texture: MaskFactory.maskTexture(
-                                  for: layer, selection: path,
+                                  for: layer, selection: selection,
                                   featherCanvasPx: CGFloat(featherAmount)),
                               isEnabled: true)
         }
@@ -3651,6 +4021,7 @@ final class DocumentStore: ObservableObject {
 
     func resizeImage(to newSize: CGSize) {
         commitPendingSessions()
+        endQuickMaskBeforeCanvasChange()
         let size = Self.clampedSize(newSize)
         guard size != document.canvasSize else { return }
         commit("Image Size", document: document.scaled(to: size))
@@ -3659,6 +4030,7 @@ final class DocumentStore: ObservableObject {
 
     func resizeCanvas(to newSize: CGSize, anchor: CGPoint) {
         commitPendingSessions()
+        endQuickMaskBeforeCanvasChange()
         let size = Self.clampedSize(newSize)
         guard size != document.canvasSize else { return }
         commit("Canvas Size", document: document.resizingCanvas(to: size, anchor: anchor))
