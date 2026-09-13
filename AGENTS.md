@@ -32,14 +32,48 @@ Releases are cut from the CLI with `./Scripts/publish-release.sh <version>`
 (see README → Releasing); it commits the version bump and `docs/appcast.xml`
 and pushes. Don't bump `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` by hand.
 
-`README.md` covers the feature set, the build/install dance, and the headless
-snapshot environment variables in more detail.
-
 Code comments cite design sections as `§N` (§2 model, §3 render, §4
 canvas/navigation, §5 selection/paint, §6 undo, §7 colour, §8 file format, §9
-tests); the README's Architecture notes carry the same legend. Keep that
-convention in new comments, and cite the relevant § when you touch behaviour it
-governs.
+tests). Keep that convention in new comments, and cite the relevant § when you
+touch behaviour it governs.
+
+### Headless UI checks
+
+`DebugSnapshot` is driven by environment variables only. An absolute path in
+`argv` is treated by AppKit as a document to open and can wedge the app behind
+a modal error.
+
+- `BRUSHY_SNAPSHOT=<png>` renders the window to disk and exits.
+- `BRUSHY_SNAPSHOT_STATE=<state>` first puts the UI into a state: `transform`,
+  `crop`, `brush`, `guides`, `groups`, `effects`, `layerstyle`, `settings`,
+  `settingswindow`, `chat`, `panelshidden`, and others.
+- `BRUSHY_OPEN=<file>` opens a file through the app's real routing first (for
+  example, to see a `.psd` land as layers).
+- `BRUSHY_SNAPSHOT_WINDOW=1` captures the window's theme frame. The title bar
+  and toolbar are included; the Metal canvas comes out blank.
+- `BRUSHY_DEMO=1` (or `--demo`) opens the two-layer demo composite.
+
+Gotchas:
+
+- Sheets can't be captured (SwiftUI sheet content caches as bare control
+  shapes), so dialog states embed the same view in the window.
+- `CGWindowListCreateImage` returns white without Screen Recording permission,
+  even for the app's own windows.
+- Snapshot runs disable keychain prompts.
+
+### Test caveats
+
+- Performance suites are order-fragile: a full run inflates frame times about 2×,
+  and a busy machine fails them outright. Trust them only in isolation:
+  `-only-testing:BrushyTests/PerformanceTests -only-testing:BrushyTests/GroupPerformanceTests -only-testing:BrushyTests/EffectsPerformanceTests`.
+- Live model evals (`ChatEvalTests`) cost a few cents and skip unless
+  `TEST_RUNNER_BRUSHY_EVAL=1` is set. `TEST_RUNNER_BRUSHY_EVAL_MODEL=<id>`
+  picks another model. The key comes from `GEMINI_API_KEY` or
+  `~/.config/imagegen/secrets.env`.
+- Golden fixture reference kinds, recorded in each fixture's JSON:
+  - `analytic`: an independent double-precision CPU renderer
+  - `recorded`: pins the Lanczos/rotation resampling paths
+  - `colorsync`: checks colour conversion against ColorSync
 
 ## Layout
 
