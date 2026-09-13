@@ -1,3 +1,5 @@
+<img width="760" height="554" alt="Brushy" src="https://github.com/user-attachments/assets/2c230453-36fc-49f9-b09b-9386050b0056" />
+
 # Brushy
 
 A small, native macOS image editor for the parts of Photoshop you actually use,
