@@ -54,13 +54,16 @@ mkdir -p docs
 STAGING_DIR="$(mktemp -d -t brushy-appcast)"
 trap 'rm -rf "${STAGING_DIR}"' EXIT
 
-cp "${ARCHIVE_PATH}" "${STAGING_DIR}/"
+# generate_appcast builds the enclosure URL from --download-url-prefix plus
+# the archive's file name, so the staged copy carries the name the zip is
+# uploaded under (publish-release.sh).
+cp "${ARCHIVE_PATH}" "${STAGING_DIR}/${RELEASE_ASSET_NAME}"
 
 if [ -n "${NOTES_FILE}" ]; then
   [ -f "${NOTES_FILE}" ] || { echo "Notes file not found: ${NOTES_FILE}" >&2; exit 1; }
   # generate_appcast looks for <zipname>.html/.md alongside each zip to embed
   # as release notes; prefer Markdown so GitHub-style formatting survives.
-  cp "${NOTES_FILE}" "${STAGING_DIR}/Brushy-${VERSION}-macos.md"
+  cp "${NOTES_FILE}" "${STAGING_DIR}/${RELEASE_ASSET_NAME%.zip}.md"
 fi
 
 # Preserve existing appcast entries by seeding the staging dir with the current

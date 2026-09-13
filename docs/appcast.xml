@@ -17,7 +17,7 @@
             <description sparkle:format="markdown"><![CDATA[## What's new
 
 - Everything]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.0/Brushy-0.2.0-macos.zip" length="5732379" type="application/octet-stream" sparkle:edSignature="kB6JBmdHsolHAXEwNsOC1T2TYLpA/XLKye4DeLM6PvMw0lG3H9G5qgts5BUHAHXw6YPehFmcK2Q+5+Zc0AbNDg=="/>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.0/Brushy-macos.zip" length="5732379" type="application/octet-stream" sparkle:edSignature="kB6JBmdHsolHAXEwNsOC1T2TYLpA/XLKye4DeLM6PvMw0lG3H9G5qgts5BUHAHXw6YPehFmcK2Q+5+Zc0AbNDg=="/>
         </item>
     </channel>
 </rss>

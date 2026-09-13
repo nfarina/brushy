@@ -105,15 +105,24 @@ if [ ! -f "${ZIP_PATH}" ]; then
   ./Scripts/local-release-build.sh "${VERSION}"
 fi
 
+# The release carries the zip under a fixed name (RELEASE_ASSET_NAME), so the
+# README's /releases/latest/download/ link never changes. gh names an asset
+# after its file, hence the renamed copy.
+# shellcheck disable=SC1091
+. Scripts/sparkle-config.sh
+UPLOAD_DIR="$(mktemp -d)"
+UPLOAD_PATH="${UPLOAD_DIR}/${RELEASE_ASSET_NAME}"
+cp "${ZIP_PATH}" "${UPLOAD_PATH}"
+
 if gh release view "${TAG}" >/dev/null 2>&1; then
-  echo "GH release ${TAG} already exists — uploading zip as an additional asset."
-  gh release upload "${TAG}" "${ZIP_PATH}" --clobber
+  echo "GH release ${TAG} already exists — uploading ${RELEASE_ASSET_NAME}."
+  gh release upload "${TAG}" "${UPLOAD_PATH}" --clobber
 else
   echo "Creating GH release ${TAG}…"
   if [ -n "${NOTES_FILE}" ]; then
-    gh release create "${TAG}" "${ZIP_PATH}" --title "${TAG}" --notes-file "${NOTES_FILE}"
+    gh release create "${TAG}" "${UPLOAD_PATH}" --title "${TAG}" --notes-file "${NOTES_FILE}"
   else
-    gh release create "${TAG}" "${ZIP_PATH}" --title "${TAG}" --generate-notes
+    gh release create "${TAG}" "${UPLOAD_PATH}" --title "${TAG}" --generate-notes
   fi
 fi
 

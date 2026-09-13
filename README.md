@@ -18,8 +18,10 @@ macOS 14+, Apple Silicon.
 
 ## Install
 
-Download the [latest release](https://github.com/nfarina/brushy/releases).
-Brushy updates itself (Brushy → Check for Updates…).
+[![Download Brushy for macOS](https://img.shields.io/github/v/release/nfarina/brushy?label=Download&logo=apple&style=for-the-badge)](https://github.com/nfarina/brushy/releases/latest/download/Brushy-macos.zip)
+
+Or browse [all releases](https://github.com/nfarina/brushy/releases). Brushy
+updates itself (Brushy → Check for Updates…).
 
 ## Build
 

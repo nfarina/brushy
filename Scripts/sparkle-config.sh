@@ -9,6 +9,10 @@ SPARKLE_SITE_URL="${SPARKLE_SITE_URL:-https://nfarina.github.io/brushy}"
 SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-${SPARKLE_SITE_URL%/}/appcast.xml}"
 SPARKLE_RELEASES_URL="${SPARKLE_RELEASES_URL:-https://github.com/nfarina/brushy/releases}"
 SPARKLE_RELEASE_DOWNLOAD_BASE_URL="${SPARKLE_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/nfarina/brushy/releases/download}"
+# The zip's name on every GitHub release. Fixed so the README can link
+# /releases/latest/download/<name>; the tag in each download URL keeps
+# releases apart for Sparkle. (dist/ keeps a versioned name locally.)
+RELEASE_ASSET_NAME="${RELEASE_ASSET_NAME:-Brushy-macos.zip}"
 SPARKLE_TOOLS_REPO="${SPARKLE_TOOLS_REPO:-sparkle-project/Sparkle}"
 SPARKLE_TOOLS_ARCHIVE="${SPARKLE_TOOLS_ARCHIVE:-Sparkle-${SPARKLE_VERSION}.tar.xz}"
 SPARKLE_TOOLS_CACHE_DIR="${SPARKLE_TOOLS_CACHE_DIR:-build/sparkle-tools/${SPARKLE_VERSION}}"
