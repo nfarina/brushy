@@ -441,7 +441,9 @@ final class DefaultsTests: XCTestCase {
         XCTAssertEqual(item.keyEquivalentModifierMask, .command)
         XCTAssertEqual(item.action, #selector(AppDelegate.showSettings(_:)))
         XCTAssertTrue(appMenu.items[index - 1].isSeparatorItem)
-        XCTAssertTrue(appMenu.items[index - 2].title.hasPrefix("About"))
+        XCTAssertEqual(appMenu.items[index - 2].title, "Check for Updates…")
+        XCTAssertEqual(appMenu.items[index - 2].action, #selector(AppDelegate.checkForUpdates(_:)))
+        XCTAssertTrue(appMenu.items[index - 3].title.hasPrefix("About"))
 
         let action = try? XCTUnwrap(item.action)
         guard let action else { return }

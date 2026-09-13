@@ -11,8 +11,8 @@ numbers may drift.
 ## Project
 
 Brushy is a native macOS 14+ image editor: Swift + Core Image + an
-AppKit canvas + SwiftUI chrome, no nibs, no third-party dependencies.
-Xcode project at `Brushy.xcodeproj`.
+AppKit canvas + SwiftUI chrome, no nibs. Sparkle (SPM) is the only
+dependency. Xcode project at `Brushy.xcodeproj`.
 
 ```bash
 # Build (use Release — Debug runs the brush engine's CPU paths ~10× slower)
@@ -21,9 +21,16 @@ xcodebuild -project Brushy.xcodeproj -scheme Brushy -configuration Release build
 # Test
 xcodebuild -project Brushy.xcodeproj -scheme Brushy test
 
+# Developer ID-signed install to /Applications
+./Scripts/local-install-app.sh
+
 # Run the demo composite
-BRUSHY_DEMO=1 open ~/Applications/Brushy.app
+BRUSHY_DEMO=1 open /Applications/Brushy.app
 ```
+
+Releases are cut from the CLI with `./Scripts/publish-release.sh <version>`
+(see README → Releasing); it commits the version bump and `docs/appcast.xml`
+and pushes. Don't bump `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` by hand.
 
 `README.md` covers the feature set, the build/install dance, and the headless
 snapshot environment variables in more detail.

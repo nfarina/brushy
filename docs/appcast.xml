@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Brushy</title>
+        <link>https://nfarina.github.io/brushy/appcast.xml</link>
+        <description>Updates for Brushy</description>
+        <language>en</language>
+    </channel>
+</rss>

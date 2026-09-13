@@ -13,6 +13,8 @@ enum MainMenuBuilder {
         appMenu.addItem(withTitle: "About \(appName)",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
+        appMenu.addItem(withTitle: "Check for Updates…",
+                        action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         // Settings… in its standard position: immediately after
         // About, behind a separator. AppDelegate owns it — not

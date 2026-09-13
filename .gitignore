@@ -8,6 +8,10 @@ xcuserdata/
 DerivedData/
 build/
 
+# Release artifacts and local signing/notary overrides (Scripts/)
+/dist
+/.env.release.local
+
 # Swift Package Manager (unused, but harmless)
 .build/
 

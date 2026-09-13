@@ -6,6 +6,11 @@
 	objectVersion = 70;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8A00000000000000000000A1 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 9A00000000000000000000A2 /* Sparkle */; };
+		8A00000000000000000000A2 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 9A00000000000000000000A3 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		3A00000000000000000000A1 /* Brushy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Brushy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A00000000000000000000A2 /* BrushyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrushyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -21,6 +26,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8A00000000000000000000A1 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -28,6 +34,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8A00000000000000000000A2 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +79,7 @@
 			);
 			name = Brushy;
 			packageProductDependencies = (
+				9A00000000000000000000A2 /* Sparkle */,
 			);
 			productName = Brushy;
 			productReference = 3A00000000000000000000A1 /* Brushy.app */;
@@ -95,6 +103,7 @@
 			);
 			name = BrushyTests;
 			packageProductDependencies = (
+				9A00000000000000000000A3 /* Sparkle */,
 			);
 			productName = BrushyTests;
 			productReference = 3A00000000000000000000A2 /* BrushyTests.xctest */;
@@ -127,6 +136,9 @@
 			);
 			mainGroup = 1A000000000000000000000A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9A00000000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = 1A000000000000000000000B /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -244,12 +256,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 0;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nfarina.Brushy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -260,12 +274,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 0;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nfarina.Brushy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -322,6 +338,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		9A00000000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9A00000000000000000000A2 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A00000000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		9A00000000000000000000A3 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A00000000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1A00000000000000000000FF /* Project object */;
 }

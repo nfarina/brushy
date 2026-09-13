@@ -22,16 +22,29 @@ Deliberately out of scope for now: adjustment layers, filters, curves and levels
 healing and clone, and RAW.
 
 macOS 14+, Apple Silicon. Swift + Core Image + an AppKit canvas + SwiftUI
-chrome, no nibs, no third-party dependencies.
+chrome, no nibs. The one third-party dependency is
+[Sparkle](https://sparkle-project.org), for updates.
 
 Brushy began as a fork of [Dezzy](https://github.com/mdhawley/Dezzy) by Matt
 Hawley.
 
+## Download
+
+[Latest release](https://github.com/nfarina/brushy/releases). It updates itself
+through Sparkle (Brushy ▸ Check for Updates…).
+
 ## Build & run
 
 Build Release for day-to-day use — Debug (`-Onone`) runs the brush engine's
-CPU paths an order of magnitude slower — and install it to ~/Applications so
-there is one canonical copy to launch:
+CPU paths an order of magnitude slower. With a Developer ID certificate in your
+keychain, this builds, signs the way releases are signed (so keychain "Always
+Allow" survives rebuilds and updates), and swaps it into /Applications:
+
+```bash
+./Scripts/local-install-app.sh
+```
+
+Without one, build and copy it yourself:
 
 ```bash
 xcodebuild -project Brushy.xcodeproj -scheme Brushy -configuration Release build
@@ -108,6 +121,37 @@ available, so absolute correctness is checked against closed-form math);
 `recorded` references pin the Lanczos/rotation resampling paths as regression
 baselines; `colorsync` references check colour conversion against ColorSync
 independently of Core Image. Failures write red-pixel diffs to `test-output/`.
+
+## Releasing
+
+Releases are cut locally from the CLI:
+
+```bash
+./Scripts/publish-release.sh 0.2.0            # opens $EDITOR for release notes
+./Scripts/publish-release.sh 0.2.0 --notes notes.md
+```
+
+That stamps `MARKETING_VERSION` and bumps `CURRENT_PROJECT_VERSION`, builds
+Release, signs Brushy and Sparkle's nested helpers with Developer ID +
+hardened runtime, notarizes and staples, creates the GitHub release with the
+zip, signs a new `docs/appcast.xml` entry (EdDSA), then commits and pushes.
+GitHub Pages serves the feed from `main:/docs` at
+`https://nfarina.github.io/brushy/appcast.xml`, which `SUFeedURL` points at.
+
+The steps run individually too: `local-release-build.sh <version>
+[--skip-notarize]`, `generate-sparkle-appcast.sh <version> [--notes …]`.
+
+One-time setup on a release machine:
+
+- A "Developer ID Application" certificate in the login keychain (auto-detected;
+  override with `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID`).
+- A notarytool profile: `xcrun notarytool store-credentials brushy-notary`, or
+  point `NOTARY_PROFILE` at an existing one in `.env.release.local` (gitignored).
+- Sparkle's EdDSA private key in the login keychain under the account
+  `com.nfarina.Brushy`. Its public half is `SUPublicEDKey` in `Config/Info.plist`.
+  Losing the private key means shipped copies can never verify another update, so
+  back it up: `build/sparkle-tools/<version>/extracted/bin/generate_keys --account
+  com.nfarina.Brushy -x brushy-sparkle-key.txt`.
 
 ## Architecture notes
 

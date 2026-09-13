@@ -1,7 +1,21 @@
 import AppKit
+import Sparkle
 import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    /// Sparkle, fed from `SUFeedURL` in Info.plist (the appcast that
+    /// `Scripts/publish-release.sh` maintains). Started in
+    /// `applicationDidFinishLaunching`, never by tests.
+    lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: false,
+        updaterDelegate: nil,
+        userDriverDelegate: nil)
+
+    /// App menu → Check for Updates…
+    @objc func checkForUpdates(_ sender: Any?) {
+        updaterController.checkForUpdates(sender)
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.build()
         Self.configureDocumentRegistry()
@@ -48,6 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if item.action == #selector(toggleChatSidebar(_:)) {
             item.state = MainActor.assumeIsolated { ChatStore.shared.isSidebarVisible } ? .on : .off
         }
+        if item.action == #selector(checkForUpdates(_:)) {
+            return updaterController.updater.canCheckForUpdates
+        }
         return true
     }
 
@@ -57,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        updaterController.startUpdater()
         if isDemoLaunch {
             DemoDocumentFactory.openDemoDocument()
         }
