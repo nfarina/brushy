@@ -153,13 +153,13 @@ final class BrushyDocument: NSDocument {
     @objc func groupLayer(_ sender: Any?) { store.groupSelection() }
     @objc func ungroupLayer(_ sender: Any?) { store.ungroupSelection() }
     // Layer Style. The per-effect items carry their
-    // `LayerEffects.Kind` raw value as representedObject, so the sheet can
-    // open on the right pane.
-    @objc func showLayerStyle(_ sender: Any?) { store.requestLayerStyle() }
+    // `LayerEffects.Kind` raw value as representedObject, so the effects
+    // panel can switch that effect on and open it.
+    @objc func showLayerStyle(_ sender: Any?) { store.showLayerEffects() }
     @objc func showLayerStyleEffect(_ sender: Any?) {
         let kind = ((sender as? NSMenuItem)?.representedObject as? String)
             .flatMap(LayerEffects.Kind.init(rawValue:))
-        store.requestLayerStyle(focus: kind)
+        store.showLayerEffects(focus: kind)
     }
     @objc func clearLayerStyle(_ sender: Any?) {
         if let id = store.selectedLayerID { store.clearLayerStyle(id) }

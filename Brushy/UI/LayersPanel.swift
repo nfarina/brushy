@@ -439,13 +439,12 @@ struct LayersPanel: View {
         .padding(.leading, CGFloat(depth) * 14)
         .opacity(dimmed ? 0.45 : 1)
         .contextMenu {
-            // Photoshop's layer context menu opens on Blending Options, with
-            // the effects listed under it.
-            Button("Blending Options…") { store.requestLayerStyle(layer.id) }
+            // Each item switches the effect on and opens it in the effects
+            // panel below the list.
             Menu("Layer Style") {
                 ForEach(LayerEffects.Kind.allCases) { kind in
-                    Button("\(kind.displayName)…") {
-                        store.requestLayerStyle(layer.id, focus: kind)
+                    Button(kind.displayName) {
+                        store.showLayerEffects(layer.id, focus: kind)
                     }
                 }
                 Divider()
@@ -483,13 +482,12 @@ struct LayersPanel: View {
     }
 
     /// Photoshop's fx badge: present whenever the layer carries a style,
-    /// dimmed while the master switch is off. Click opens Layer Style; the
-    /// context menu toggles individual effects without opening the dialog.
+    /// dimmed while the master switch is off. Click shows the effects panel;
+    /// the context menu opens one effect there or switches them all off.
     private func effectsBadge(for layer: Layer) -> some View {
         let active = layer.effects.isActive
         return Button {
-            store.selectLayer(layer.id)
-            store.requestLayerStyle(layer.id)
+            store.showLayerEffects(layer.id)
         } label: {
             Text("fx")
                 .font(.caption.weight(.bold))
@@ -503,11 +501,11 @@ struct LayersPanel: View {
             .accessibilityValue(active
                 ? layer.effects.activeKinds.map(\.displayName).joined(separator: ", ")
                 : "Off")
-            .accessibilityHint("Opens the Layer Style dialog.")
+            .accessibilityHint("Shows the layer's effects below the layer list.")
             .contextMenu {
                 ForEach(layer.effects.activeKinds) { kind in
-                    Button("Edit \(kind.displayName)…") {
-                        store.requestLayerStyle(layer.id, focus: kind)
+                    Button("Edit \(kind.displayName)") {
+                        store.showLayerEffects(layer.id, focus: kind)
                     }
                 }
                 if !layer.effects.activeKinds.isEmpty { Divider() }

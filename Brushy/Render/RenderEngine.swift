@@ -457,7 +457,7 @@ final class RenderEngine {
         let scale = Self.effectScale(outputTransform)
         var result = accumulated
         for pass in LayerEffectRenderer.exteriorPasses(layer.effects, content: content,
-                                                       scale: scale) {
+                                                       scale: scale, layerOpacity: layer.opacity) {
             let image = Self.withOpacity(pass.image, Float(pass.opacity) * layer.opacity)
             result = Self.blended(image, over: result, mode: pass.mode)
         }
@@ -545,7 +545,7 @@ final class RenderEngine {
             let content = effectContent(base, outputTransform: outputTransform, stroke: stroke)
             let scale = Self.effectScale(outputTransform)
             for pass in LayerEffectRenderer.exteriorPasses(base.effects, content: content,
-                                                           scale: scale) {
+                                                           scale: scale, layerOpacity: base.opacity) {
                 let image = Self.withOpacity(pass.image, Float(pass.opacity) * base.opacity)
                 backdrop = Self.blended(image, over: backdrop, mode: pass.mode)
             }

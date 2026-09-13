@@ -73,9 +73,6 @@ struct RootView: View {
         .sheet(item: $store.selectionModifyRequested) { kind in
             SelectionModifySheet(store: store, kind: kind)
         }
-        .sheet(item: $store.layerStyleRequested) { request in
-            LayerStyleSheet(store: store, request: request)
-        }
         .alert("Brushy", isPresented: Binding(
             get: { store.lastErrorMessage != nil },
             set: { if !$0 { store.lastErrorMessage = nil } })) {
@@ -98,7 +95,17 @@ private extension RootView {
             .padding(.vertical, 6)
             Divider()
             switch store.rightPanel {
-            case .layers: LayersPanel(store: store)
+            case .layers:
+                // The effects panel sits under the list and takes only the
+                // height it needs, up to most of the column; the list keeps
+                // the rest.
+                GeometryReader { geometry in
+                    VStack(spacing: 0) {
+                        LayersPanel(store: store)
+                        Divider()
+                        LayerEffectsPanel(store: store, maxHeight: geometry.size.height * 0.65)
+                    }
+                }
             case .history: HistoryPanel(store: store)
             }
         }

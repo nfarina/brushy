@@ -1,6 +1,5 @@
 import CoreGraphics
 import XCTest
-@testable import Brushy
 
 /// The JavaScript surface end to end: prelude → host bridge → session. What
 /// a model writes against, per `ScriptAPIDeclaration`.

@@ -59,9 +59,10 @@ enum LayerEffectRenderer {
 
     // MARK: - Entry points
 
-    /// Effects that render behind the layer, bottom-first.
+    /// Effects that render behind the layer, bottom-first. `layerOpacity` is
+    /// the opacity the fill will be drawn with — knockout depends on it.
     static func exteriorPasses(_ effects: LayerEffects, content: CIImage,
-                               scale: CGFloat) -> [Pass] {
+                               scale: CGFloat, layerOpacity: Float) -> [Pass] {
         guard let bounds = workingBounds(effects, content: content, scale: scale) else { return [] }
         var passes: [Pass] = []
         if let shadow = effects.enabledDropShadow {
@@ -71,11 +72,13 @@ enum LayerEffectRenderer {
             var image = exteriorMatte(content: content, color: shadow.color,
                                       offset: offset, spread: shadow.spread,
                                       size: shadow.size, scale: scale, bounds: bounds)
-            if shadow.knocksOut {
-                // Photoshop's "Layer Knocks Out Drop Shadow": the layer's own
-                // coverage is punched out, so a translucent layer shows the
-                // backdrop through itself, not its own shadow.
-                image = RenderEngine.alphaMasked(image, by: invertedCoverage(of: content),
+            // Photoshop's "Layer Knocks Out Drop Shadow": a translucent layer
+            // shows the backdrop through itself, not its own shadow. At full
+            // opacity the fill already hides the shadow, so there is nothing
+            // to knock out — and skipping it keeps soft edges exact.
+            if shadow.knocksOut, layerOpacity < 1 {
+                image = RenderEngine.alphaMasked(image, by: knockoutMask(of: content,
+                                                                         layerOpacity: layerOpacity),
                                                  within: bounds)
             }
             passes.append(Pass(image: image, mode: shadow.blendMode, opacity: shadow.opacity))
@@ -228,6 +231,36 @@ enum LayerEffectRenderer {
         filter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputAVector")
         filter.setValue(CIVector(x: 1, y: 1, z: 1, w: 1), forKey: "inputBiasVector")
         return filter.outputImage ?? image
+    }
+
+    /// What survives of the drop shadow under a layer drawn at opacity `o`:
+    /// (1 − α) / (1 − α·o), as an opaque grayscale.
+    ///
+    /// The naive mask, 1 − α, is right where α is 0 or 1 but wrong on a soft
+    /// edge: the fill then draws over the already-thinned shadow and thins it
+    /// again, leaving a light halo around the layer. Treating α as partial
+    /// COVERAGE — the covered part shows the fill over the backdrop, the rest
+    /// shows the shadow — and solving for the shadow strength that makes
+    /// "fill over masked shadow" equal that gives this ratio. It is 1 at
+    /// o = 1 (no knockout at all) and 1 − α at o = 0. Exact for Normal
+    /// shadows; the Multiply sandwich is affine in the shadow's alpha too.
+    static func knockoutMask(of image: CIImage, layerOpacity: Float) -> CIImage {
+        let o = CGFloat(min(max(layerOpacity, 0), 1))
+        guard let denominator = CIFilter(name: "CIColorMatrix"),
+              let divide = CIFilter(name: "CIDivideBlendMode") else {
+            return invertedCoverage(of: image)
+        }
+        let scaledNegativeAlpha = CIVector(x: 0, y: 0, z: 0, w: -o)
+        denominator.setValue(image, forKey: kCIInputImageKey)
+        denominator.setValue(scaledNegativeAlpha, forKey: "inputRVector")
+        denominator.setValue(scaledNegativeAlpha, forKey: "inputGVector")
+        denominator.setValue(scaledNegativeAlpha, forKey: "inputBVector")
+        denominator.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputAVector")
+        denominator.setValue(CIVector(x: 1, y: 1, z: 1, w: 1), forKey: "inputBiasVector")
+        // CIDivideBlendMode yields background ÷ image (measured).
+        divide.setValue(denominator.outputImage, forKey: kCIInputImageKey)
+        divide.setValue(invertedCoverage(of: image), forKey: kCIInputBackgroundImageKey)
+        return divide.outputImage ?? invertedCoverage(of: image)
     }
 
     private static func dilated(_ image: CIImage, radius: CGFloat) -> CIImage {

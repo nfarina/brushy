@@ -407,13 +407,129 @@ final class LayerEffectsTests: XCTestCase {
         XCTAssertEqual(store.document[layerID: id]?.effects.outerGlow?.isEnabled, true)
     }
 
-    func testRequestingALayerStyleSelectsTheLayerAndFocusesTheEffect() {
-        let (store, _, id) = makeStyleStore()
+    /// A Layer Style menu item selects the layer, brings the panel up,
+    /// switches the effect on as its own commit and asks the panel to open it.
+    func testShowingAnEffectSelectsTheLayerAddsItAndFocusesIt() {
+        let (store, undoManager, id) = makeStyleStore()
         store.selectLayer(nil)
-        store.requestLayerStyle(id, focus: .stroke)
+        store.rightPanel = .history
+        undoManager.beginUndoGrouping()
+        store.showLayerEffects(id, focus: .stroke)
+        undoManager.endUndoGrouping()
         XCTAssertEqual(store.selectedLayerID, id)
-        XCTAssertEqual(store.layerStyleRequested?.layerID, id)
-        XCTAssertEqual(store.layerStyleRequested?.focus, .stroke)
+        XCTAssertEqual(store.rightPanel, .layers)
+        XCTAssertEqual(store.effectsFocus?.layerID, id)
+        XCTAssertEqual(store.effectsFocus?.kind, .stroke)
+        XCTAssertEqual(store.document[layerID: id]?.effects.isOn(.stroke), true)
+        XCTAssertEqual(undoManager.undoActionName, "Add Stroke")
+
+        // Showing an effect that is already on adds no history.
+        let position = store.historyPosition
+        store.showLayerEffects(id, focus: .stroke)
+        XCTAssertEqual(store.historyPosition, position)
+    }
+
+    /// A panel drag previews through `setLiveLayerEffects` and lands one
+    /// commit at the end; a release that changed nothing records nothing.
+    func testAPanelDragIsOneUndoStep() throws {
+        let (store, undoManager, id) = makeStyleStore()
+        undoManager.beginUndoGrouping()
+        store.addLayerEffect(id, .dropShadow)
+        undoManager.endUndoGrouping()
+        var effects = try XCTUnwrap(store.document[layerID: id]?.effects)
+        let before = store.historyPosition
+        for size in stride(from: 2.0, through: 20.0, by: 2.0) {
+            effects.dropShadow?.size = size
+            store.setLiveLayerEffects(id, effects)
+        }
+        XCTAssertEqual(store.historyPosition, before, "live preview must not touch history")
+        undoManager.beginUndoGrouping()
+        store.endLayerEffectsEdit("Change Drop Shadow")
+        undoManager.endUndoGrouping()
+        XCTAssertEqual(store.historyPosition, before + 1)
+        XCTAssertEqual(undoManager.undoActionName, "Change Drop Shadow")
+
+        store.endLayerEffectsEdit("Change Drop Shadow")
+        XCTAssertEqual(store.historyPosition, before + 1, "an empty edit must not add a step")
+
+        undoManager.undo()
+        XCTAssertNotEqual(store.document[layerID: id]?.effects.dropShadow?.size, 20)
+    }
+
+    func testRemovingAnEffectDropsItsParameters() {
+        let (store, _, id) = makeStyleStore()
+        store.addLayerEffect(id, .outerGlow)
+        store.removeLayerEffect(id, .outerGlow)
+        XCTAssertNil(store.document[layerID: id]?.effects.outerGlow)
+        XCTAssertTrue(store.document[layerID: id]?.effects.isEmpty ?? false)
+    }
+
+    /// New effects are sized to the layer, so a shadow on a large layer is
+    /// visible without hunting for it; small layers keep Photoshop's floors.
+    func testAddedEffectsAreSizedToTheLayer() {
+        var large = LayerEffects()
+        large.add(.dropShadow, layerSize: CGSize(width: 900, height: 1200))
+        XCTAssertEqual(large.dropShadow?.distance, 18)
+        XCTAssertEqual(large.dropShadow?.size, 54)
+
+        var small = LayerEffects()
+        small.add(.dropShadow, layerSize: CGSize(width: 40, height: 40))
+        XCTAssertEqual(small.dropShadow?.distance, 5)
+        XCTAssertEqual(small.dropShadow?.size, 5)
+
+        var huge = LayerEffects()
+        huge.add(.outerGlow, layerSize: CGSize(width: 20_000, height: 20_000))
+        XCTAssertEqual(huge.outerGlow?.size, LayerEffects.Bounds.point.upperBound)
+
+        // Re-adding an unchecked effect restores it rather than resizing it.
+        large.dropShadow?.size = 3
+        large.setOn(.dropShadow, false)
+        large.add(.dropShadow, layerSize: CGSize(width: 900, height: 1200))
+        XCTAssertEqual(large.dropShadow?.size, 3)
+        XCTAssertTrue(large.isOn(.dropShadow))
+    }
+
+    /// At full layer opacity knockout must change nothing — the fill already
+    /// covers the shadow. The old 1 − α mask thinned the shadow under soft
+    /// edges and then drew the edge over it, leaving a light halo.
+    func testKnockoutLeavesSoftEdgesUntouchedAtFullOpacity() throws {
+        let size = 48
+        let disc = GeneratedImages.image(width: size, height: size, colorSpace: p3) { x, y in
+            let d = hypot(Double(x) + 0.5 - 24, Double(y) + 0.5 - 24)
+            // A wide soft rim, like an app icon's built-in shadow.
+            let alpha = min(max((20 - d) / 6, 0), 1)
+            return (255, 255, 255, UInt8((alpha * 255).rounded()))
+        }
+        func render(knocksOut: Bool, opacity: Float) throws -> RawImage {
+            var document = Document(canvasSize: CGSize(width: canvas, height: canvas))
+            let backdrop = Layer(name: "grey",
+                                 source: GeneratedImages.solid(width: Int(canvas), height: Int(canvas),
+                                                               r: 128, g: 128, b: 128, colorSpace: p3))
+            var layer = Layer(name: "disc", source: disc,
+                              transform: CGAffineTransform(translationX: 16, y: 16))
+            var shadow = DropShadowEffect()
+            shadow.distance = 0
+            shadow.size = 12
+            shadow.opacity = 1
+            shadow.blendMode = .normal
+            shadow.knocksOut = knocksOut
+            layer.effects.dropShadow = shadow
+            layer.opacity = opacity
+            document.layers = [backdrop, layer]
+            return try self.render(document)
+        }
+        XCTAssertEqual(try render(knocksOut: true, opacity: 1).rgba,
+                       try render(knocksOut: false, opacity: 1).rgba)
+
+        // Translucent, knockout still hides the shadow under the layer's
+        // solid middle. Analytic, in linear light (grey 128 ≈ 0.216):
+        // knocked out, 50% white over the grey → 0.608 → 205 encoded;
+        // shown through, 50% white over grey darkened by the 50% shadow
+        // (0.108) → 0.554 → 196 encoded.
+        let knocked = try render(knocksOut: true, opacity: 0.5)
+        let through = try render(knocksOut: false, opacity: 0.5)
+        XCTAssertEqual(Int(pixel(knocked, x: 40, y: 40).r), 205, accuracy: 2)
+        XCTAssertEqual(Int(pixel(through, x: 40, y: 40).r), 196, accuracy: 2)
     }
 
     /// Merge Down is the one destructive op: the merged pixels must

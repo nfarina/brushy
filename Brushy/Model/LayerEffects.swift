@@ -98,7 +98,7 @@ struct LayerEffects: Equatable, Codable {
     }
 
     /// The user-facing effect list, in Photoshop's dialog order — drives the
-    /// Layer Style sheet, the fx badge tooltip and the menu.
+    /// effects panel, the fx badge tooltip and the menu.
     enum Kind: String, CaseIterable, Identifiable, Codable {
         case dropShadow, innerShadow, outerGlow, innerGlow, stroke
         case colorOverlay, gradientOverlay
@@ -153,13 +153,80 @@ struct LayerEffects: Equatable, Codable {
         }
     }
 
+    /// Whether the effect exists at all, checked or not — the effects panel
+    /// lists these.
+    func isPresent(_ kind: Kind) -> Bool {
+        switch kind {
+        case .dropShadow: return dropShadow != nil
+        case .innerShadow: return innerShadow != nil
+        case .outerGlow: return outerGlow != nil
+        case .innerGlow: return innerGlow != nil
+        case .stroke: return stroke != nil
+        case .colorOverlay: return colorOverlay != nil
+        case .gradientOverlay: return gradientOverlay != nil
+        }
+    }
+
+    /// Deletes the effect and its parameters (unchecking keeps them).
+    mutating func remove(_ kind: Kind) {
+        switch kind {
+        case .dropShadow: dropShadow = nil
+        case .innerShadow: innerShadow = nil
+        case .outerGlow: outerGlow = nil
+        case .innerGlow: innerGlow = nil
+        case .stroke: stroke = nil
+        case .colorOverlay: colorOverlay = nil
+        case .gradientOverlay: gradientOverlay = nil
+        }
+    }
+
+    /// Switches an effect on from the effects panel. An effect that was only
+    /// unchecked comes back as it was; a new one gets distances sized to the
+    /// layer, because Photoshop's fixed 5 px defaults are invisible on a
+    /// large layer (about 1 screen pixel for a 900 px icon at 22%).
+    mutating func add(_ kind: Kind, layerSize: CGSize) {
+        guard !isPresent(kind) else { return setOn(kind, true) }
+        let side = Double(min(layerSize.width, layerSize.height))
+        func scaled(_ fraction: Double, floor minimum: Double) -> Double {
+            guard side.isFinite else { return minimum }
+            return min(max((side * fraction).rounded(), minimum), Bounds.point.upperBound)
+        }
+        switch kind {
+        case .dropShadow:
+            var e = DropShadowEffect()
+            e.distance = scaled(0.02, floor: 5)
+            e.size = scaled(0.06, floor: 5)
+            e.opacity = 0.5
+            dropShadow = e
+        case .innerShadow:
+            var e = InnerShadowEffect()
+            e.distance = scaled(0.01, floor: 5)
+            e.size = scaled(0.03, floor: 5)
+            innerShadow = e
+        case .outerGlow:
+            var e = OuterGlowEffect()
+            e.size = scaled(0.04, floor: 5)
+            outerGlow = e
+        case .innerGlow:
+            var e = InnerGlowEffect()
+            e.size = scaled(0.03, floor: 5)
+            innerGlow = e
+        case .stroke:
+            var e = StrokeEffect()
+            e.size = scaled(0.006, floor: 3)
+            stroke = e
+        case .colorOverlay, .gradientOverlay:
+            setOn(kind, true)
+        }
+    }
+
     /// The enabled effects, top-to-bottom in Photoshop's fx sub-row order.
     var activeKinds: [Kind] { Kind.allCases.filter { isOn($0) } }
 
     // MARK: - Sanitising
 
-    /// The bounds `LayerStyleSheet` already enforces on every field, applied
-    /// to a style that did NOT come from that sheet.
+    /// The bounds `LayerEffectsPanel` already enforces on every field, applied
+    /// to a style that did NOT come from that panel.
     ///
     /// Effects arrive from two places the UI doesn't police: `document.json`
     /// inside a `.brushy` package, and Photoshop's `lfx2` descriptor — where
@@ -243,6 +310,8 @@ struct LayerEffects: Equatable, Codable {
 
 /// Shared shape of every effect: a checkbox, a blend mode and an opacity.
 protocol LayerEffect: Equatable, Codable {
+    /// Photoshop's defaults.
+    init()
     var isEnabled: Bool { get set }
     var blendMode: BlendMode { get set }
     var opacity: Double { get set }
@@ -259,6 +328,19 @@ extension LayerEffect {
         return copy
     }
 }
+
+/// An effect painted in one colour — everything but Gradient Overlay. Lets
+/// the effects panel build its blend-and-colour row once.
+protocol ColoredLayerEffect: LayerEffect {
+    var color: EffectColor { get set }
+}
+
+extension DropShadowEffect: ColoredLayerEffect {}
+extension InnerShadowEffect: ColoredLayerEffect {}
+extension OuterGlowEffect: ColoredLayerEffect {}
+extension InnerGlowEffect: ColoredLayerEffect {}
+extension StrokeEffect: ColoredLayerEffect {}
+extension ColorOverlayEffect: ColoredLayerEffect {}
 
 /// An sRGB colour that survives JSON and PSD round trips. The UI colour wells
 /// hold sRGB `CGColor`s (`ToolOptionsBar.colorBinding`), Photoshop's
@@ -315,9 +397,9 @@ struct DropShadowEffect: LayerEffect {
     var spread: Double = 0
     /// Canvas points of blur.
     var size: Double = 5
-    /// Photoshop's "Layer Knocks Out Drop Shadow": the layer's own coverage is
-    /// punched out of the shadow, so a semi-transparent layer doesn't show its
-    /// own shadow through itself.
+    /// Photoshop's "Layer Knocks Out Drop Shadow": a layer below full opacity
+    /// doesn't show its own shadow through itself. At full opacity it changes
+    /// nothing (see `LayerEffectRenderer.knockoutMask`).
     var knocksOut: Bool = true
 }
 

@@ -224,15 +224,15 @@ enum MainMenuBuilder {
         layer.addItem(withTitle: "Rotate 90° Right",
                       action: #selector(BrushyDocument.rotate90Right(_:)), keyEquivalent: "")
         layer.addItem(.separator())
-        // Layer Style: Photoshop's submenu — Blending
-        // Options first, then one item per effect, then Clear.
+        // Layer Style: Photoshop's submenu shape — show the effects panel,
+        // then one item per effect (switches it on and opens it), then Clear.
         let style = NSMenu(title: "Layer Style")
-        style.addItem(withTitle: "Blending Options…",
+        style.addItem(withTitle: "Show Layer Effects",
                       action: #selector(BrushyDocument.showLayerStyle(_:)),
                       keyEquivalent: "")
         style.addItem(.separator())
         for kind in LayerEffects.Kind.allCases {
-            let item = style.addItem(withTitle: "\(kind.displayName)…",
+            let item = style.addItem(withTitle: kind.displayName,
                                      action: #selector(BrushyDocument.showLayerStyleEffect(_:)),
                                      keyEquivalent: "")
             item.representedObject = kind.rawValue

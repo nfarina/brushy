@@ -79,7 +79,7 @@ enum DebugSnapshot {
                                           sheetSettlePasses: dialogSettlePasses)
             }
             if dialogSettlePasses > 0,
-               store.layerStyleRequested != nil || store.colorPickerRequest != nil
+               store.colorPickerRequest != nil
                 || store.adjustmentRequest != nil || isSettingsSnapshot {
                 return captureWhenSettled(window: window, store: store, path: path,
                                           attemptsLeft: attemptsLeft,
@@ -118,9 +118,6 @@ enum DebugSnapshot {
             let pane = ProcessInfo.processInfo.environment["BRUSHY_SNAPSHOT_PANE"]
                 .flatMap(SettingsView.Pane.init(rawValue:)) ?? .general
             dialog = (AnyView(SettingsView(pane: pane)), SettingsView.preferredSize)
-        } else if let request = store.layerStyleRequested {
-            dialog = (AnyView(LayerStyleSheet(store: store, request: request)),
-                      CGSize(width: 660, height: 480))
         } else if let request = store.adjustmentRequest {
             dialog = (AnyView(AdjustmentSheet(store: store, layerID: request.id)),
                       CGSize(width: 430, height: 400))
@@ -426,7 +423,7 @@ enum DebugSnapshot {
             // Layer effects: a styled card and a styled
             // headline, so the canvas shows shadow/stroke/overlay work and the
             // panel shows the fx badges. "layerstyle" additionally opens the
-            // Layer Style sheet, which `write` captures instead of the window.
+            // card's drop shadow in the effects panel.
             let r = store.document.canvasRect
             let card = GeneratedImages.image(width: 420, height: 260,
                                              colorSpace: BrushyColorSpace.displayP3) { _, _ in
@@ -472,7 +469,7 @@ enum DebugSnapshot {
             store.commit("Styled Layers", document: doc)
             store.selectLayer(cardLayer.id)
             if ProcessInfo.processInfo.environment["BRUSHY_SNAPSHOT_STATE"] == "layerstyle" {
-                store.requestLayerStyle(cardLayer.id, focus: .dropShadow)
+                store.showLayerEffects(cardLayer.id, focus: .dropShadow)
             }
         case "align":
             // three unequal cards, all selected at once, with the

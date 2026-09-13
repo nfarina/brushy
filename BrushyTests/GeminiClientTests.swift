@@ -1,5 +1,4 @@
 import XCTest
-@testable import Brushy
 
 /// The Interactions API plumbing that never touches the network: stream
 /// reassembly from captured SSE frames, and the request/response shapes.

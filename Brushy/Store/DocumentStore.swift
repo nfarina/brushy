@@ -241,15 +241,15 @@ final class DocumentStore: ObservableObject {
     @Published var canvasSizeRequested = false
     @Published var fillRequested = false
     @Published var selectionModifyRequested: SelectionModifyKind?
-    /// Layer Style sheet: the layer being styled, plus the
-    /// effect its editor should open on. Identifiable so `.sheet(item:)` can
-    /// drive it, like the Modify sheets.
-    struct LayerStyleRequest: Identifiable, Equatable {
+    /// An effect the effects panel should expand and scroll to — set by the
+    /// Layer Style menu items and the fx badge, consumed by the panel. The
+    /// token makes a repeat request for the same effect still register.
+    struct EffectsFocus: Equatable {
         let layerID: UUID
-        var focus: LayerEffects.Kind?
-        var id: UUID { layerID }
+        let kind: LayerEffects.Kind
+        let token = UUID()
     }
-    @Published var layerStyleRequested: LayerStyleRequest?
+    @Published var effectsFocus: EffectsFocus?
     /// Last-used Modify amounts, reseeding each sheet like Photoshop's dialogs.
     var selectionModifyAmounts: [SelectionModifyKind: Double] = [:]
     @Published var lastErrorMessage: String?
@@ -924,27 +924,59 @@ final class DocumentStore: ObservableObject {
 
     // MARK: - Layer effects (Layer Style)
 
-    /// Opens the Layer Style sheet on the selected layer, optionally scrolled
-    /// to one effect (Photoshop's "Drop Shadow…" menu items land on their own
-    /// pane). Pending sessions land first because the sheet
-    /// edits the document.
-    func requestLayerStyle(_ id: UUID? = nil, focus: LayerEffects.Kind? = nil) {
+    /// Brings the effects panel (under the Layers list) up on a layer — the
+    /// Layer Style menu items and the fx badge. With `focus`, that effect is
+    /// switched on if it isn't (its own commit) and expanded in the panel.
+    func showLayerEffects(_ id: UUID? = nil, focus: LayerEffects.Kind? = nil) {
         commitPendingSessions()
         guard let layerID = id ?? selectedLayerID, document[layerID: layerID] != nil else { return }
         selectLayer(layerID)
-        layerStyleRequested = LayerStyleRequest(layerID: layerID, focus: focus)
+        rightPanel = .layers
+        panelsHidden = false
+        guard let focus else { return }
+        addLayerEffect(layerID, focus)
+        effectsFocus = EffectsFocus(layerID: layerID, kind: focus)
     }
 
-    /// Live preview while the sheet's controls move — no history, like the
-    /// opacity slider's mid-drag updates.
+    /// Switches an effect on. A new one is sized to the layer
+    /// (`LayerEffects.add(_:layerSize:)`); one that was only unchecked comes
+    /// back with its old parameters.
+    func addLayerEffect(_ id: UUID, _ kind: LayerEffects.Kind) {
+        guard let layer = document[layerID: id], !layer.effects.isOn(kind) else { return }
+        var effects = layer.effects
+        let wasPresent = effects.isPresent(kind)
+        effects.add(kind, layerSize: layer.canvasBounds.size)
+        effects.isEnabled = true
+        setLayerEffects(id, effects, actionName: wasPresent ? "Enable \(kind.displayName)"
+                                                            : "Add \(kind.displayName)")
+    }
+
+    /// Deletes an effect with its parameters — the panel's remove button.
+    func removeLayerEffect(_ id: UUID, _ kind: LayerEffects.Kind) {
+        guard var effects = document[layerID: id]?.effects, effects.isPresent(kind) else { return }
+        effects.remove(kind)
+        setLayerEffects(id, effects, actionName: "Remove \(kind.displayName)")
+    }
+
+    /// Live preview while a panel control moves — no history, like the
+    /// opacity slider's mid-drag updates. `endLayerEffectsEdit` lands it.
     func setLiveLayerEffects(_ id: UUID, _ effects: LayerEffects) {
+        commitPendingSessions()
         guard var layer = document[layerID: id], layer.effects != effects else { return }
         layer.effects = effects
         document = document.replacingLayer(layer)
     }
 
-    /// One history entry for a whole Layer Style edit — what the sheet's OK
-    /// button lands, and what the fx eye and Clear Layer Style use.
+    /// Lands the live effect edits on screen as one history entry: the end of
+    /// a slider or dial drag, a typed value, a burst of colour-panel changes.
+    /// An edit that changed nothing records nothing (`commit` drops a
+    /// snapshot identical to the current one).
+    func endLayerEffectsEdit(_ actionName: String) {
+        commit(actionName, document: document)
+    }
+
+    /// One history entry for a whole effects change — what the panel's
+    /// add/remove use, and what the fx eye and Clear Layer Style use.
     func setLayerEffects(_ id: UUID, _ effects: LayerEffects,
                          actionName: String = "Layer Style") {
         commitPendingSessions()

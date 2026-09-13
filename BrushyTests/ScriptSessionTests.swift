@@ -1,6 +1,5 @@
 import CoreGraphics
 import XCTest
-@testable import Brushy
 
 /// The op interpreter over `Document` values (§2), and the top-left ↔ canvas
 /// flip it hides. No JavaScript involved: these pin the semantics a script

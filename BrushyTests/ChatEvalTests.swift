@@ -1,6 +1,5 @@
 import CoreGraphics
 import XCTest
-@testable import Brushy
 
 /// Live evaluation against the real Gemini API: does the configured model,
 /// given the system prompt and API, turn plain-language requests into the

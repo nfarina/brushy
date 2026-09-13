@@ -1,6 +1,5 @@
 import CoreGraphics
 import XCTest
-@testable import Brushy
 
 /// The agent loop against a scripted provider: tool calls run for real
 /// (scripts commit to real stores), the history stays well-formed, and the

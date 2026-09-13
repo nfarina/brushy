@@ -1,6 +1,5 @@
 import CoreGraphics
 import XCTest
-@testable import Brushy
 
 /// Snapshot → run → commit against real stores (§6): one named history
 /// entry per touched document, nothing on failure, and no clobbering a

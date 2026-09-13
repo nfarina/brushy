@@ -1,6 +1,5 @@
 import CoreGraphics
 import XCTest
-@testable import Brushy
 
 /// The `edit_image` tool without the network: the crop geometry, the
 /// outlined reference the model sees, the placement script, and the whole
