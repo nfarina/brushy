@@ -1,4 +1,4 @@
-# Dezzy
+# Brushy
 
 A minimal native macOS image editor: layered, non-destructive, and deliberately
 small. The success criterion is not feature count — it is that the handful of
@@ -24,6 +24,9 @@ healing and clone, and RAW.
 macOS 14+, Apple Silicon. Swift + Core Image + an AppKit canvas + SwiftUI
 chrome, no nibs, no third-party dependencies.
 
+Brushy began as a fork of [Dezzy](https://github.com/mdhawley/Dezzy) by Matt
+Hawley.
+
 ## Build & run
 
 Build Release for day-to-day use — Debug (`-Onone`) runs the brush engine's
@@ -31,12 +34,12 @@ CPU paths an order of magnitude slower — and install it to ~/Applications so
 there is one canonical copy to launch:
 
 ```bash
-xcodebuild -project Dezzy.xcodeproj -scheme Dezzy -configuration Release build
-ditto "$(xcodebuild -project Dezzy.xcodeproj -scheme Dezzy -configuration Release -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/Dezzy.app" ~/Applications/Dezzy.app
-open ~/Applications/Dezzy.app
+xcodebuild -project Brushy.xcodeproj -scheme Brushy -configuration Release build
+ditto "$(xcodebuild -project Brushy.xcodeproj -scheme Brushy -configuration Release -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/Brushy.app" ~/Applications/Brushy.app
+open ~/Applications/Brushy.app
 ```
 
-or open `Dezzy.xcodeproj` in Xcode (16+) and run. `DEZZY_DEMO=1` in
+or open `Brushy.xcodeproj` in Xcode (16+) and run. `BRUSHY_DEMO=1` in
 the environment (or launching with `--demo`) opens the hardcoded two-layer
 demo composite instead of an empty document.
 
@@ -45,14 +48,14 @@ keychain; the `GEMINI_API_KEY` environment variable also works).
 
 Headless UI checks (`DebugSnapshot`, all environment variables — an absolute
 path in `argv` is taken by AppKit as a document to open and can wedge the app
-in a modal error): `DEZZY_SNAPSHOT=<png>` renders the window to disk and
-exits, `DEZZY_SNAPSHOT_STATE=<state>` puts the UI into one first
+in a modal error): `BRUSHY_SNAPSHOT=<png>` renders the window to disk and
+exits, `BRUSHY_SNAPSHOT_STATE=<state>` puts the UI into one first
 (`transform`, `crop`, `brush`, `guides`, `groups`, `effects`, `layerstyle`,
-`settings`, `settingswindow`, `chat`, `panelshidden`, …), and `DEZZY_OPEN=<file>` opens a
+`settings`, `settingswindow`, `chat`, `panelshidden`, …), and `BRUSHY_OPEN=<file>` opens a
 file through the app's real routing first — the way to see a `.psd` land as layers.
 Sheets can't be captured (SwiftUI sheet content caches as bare control shapes, no
 text), so dialog states embed the same view in the window instead.
-`DEZZY_SNAPSHOT_WINDOW=1` captures the window's theme frame — title bar and toolbar
+`BRUSHY_SNAPSHOT_WINDOW=1` captures the window's theme frame — title bar and toolbar
 included, Metal canvas blank — and `settingswindow` captures the real Settings window
 the same way (`CGWindowListCreateImage` is no use: it returns white without Screen
 Recording permission, even for the app's own windows). Snapshot runs disable keychain
@@ -63,12 +66,12 @@ Allow" stick.
 ## Tests
 
 ```bash
-xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test
+xcodebuild -project Brushy.xcodeproj -scheme Brushy test
 ```
 
 Golden-image fixtures, P3 round-trip and linear-light checks, model
 invariants, transform/smart-guide semantics, store/undo behaviour,
-.dezzy round-trip, display orientation, PSD read/write round trips
+.brushy round-trip, display orientation, PSD read/write round trips
 (including against a file ImageIO wrote, so the reader isn't only checked
 against our own writer), an end-to-end place→edit→save→reopen→export pass,
 and the performance target (8 layers @ 6000×4000; ~9.5 ms/frame on an M3
@@ -78,7 +81,7 @@ Performance suites are order-fragile at full-suite scale — a full run
 inflates frame times ~2×. Trust them only in isolation:
 
 ```bash
-xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test -only-testing:DezzyTests/PerformanceTests -only-testing:DezzyTests/GroupPerformanceTests -only-testing:DezzyTests/EffectsPerformanceTests
+xcodebuild -project Brushy.xcodeproj -scheme Brushy test -only-testing:BrushyTests/PerformanceTests -only-testing:BrushyTests/GroupPerformanceTests -only-testing:BrushyTests/EffectsPerformanceTests
 ```
 
 Live model evaluations (`ChatEvalTests`) send real requests to Gemini and
@@ -86,17 +89,17 @@ check the resulting documents — six plain-language tasks against the
 configured chat model, a few cents per run. They skip unless asked for:
 
 ```bash
-TEST_RUNNER_DEZZY_EVAL=1 xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test -only-testing:DezzyTests/ChatEvalTests
+TEST_RUNNER_BRUSHY_EVAL=1 xcodebuild -project Brushy.xcodeproj -scheme Brushy test -only-testing:BrushyTests/ChatEvalTests
 ```
 
-(`TEST_RUNNER_DEZZY_EVAL_MODEL=gemini-3.5-flash-lite` tries another model;
+(`TEST_RUNNER_BRUSHY_EVAL_MODEL=gemini-3.5-flash-lite` tries another model;
 the key comes from `GEMINI_API_KEY` or `~/.config/imagegen/secrets.env`.)
 
-Golden fixtures live in `DezzyTests/Fixtures/` (JSON descriptions +
+Golden fixtures live in `BrushyTests/Fixtures/` (JSON descriptions +
 reference PNGs). Regenerate them with:
 
 ```bash
-env TEST_RUNNER_RECORD_FIXTURES=1 xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test -only-testing:DezzyTests/GoldenImageTests
+env TEST_RUNNER_RECORD_FIXTURES=1 xcodebuild -project Brushy.xcodeproj -scheme Brushy test -only-testing:BrushyTests/GoldenImageTests
 ```
 
 Reference kinds (recorded in each fixture's JSON): `analytic` references come
@@ -108,10 +111,10 @@ independently of Core Image. Failures write red-pixel diffs to `test-output/`.
 
 ## Architecture notes
 
-- `Dezzy/Scripting` — the JavaScript API the AI (and, later, a CLI) drives.
+- `Brushy/Scripting` — the JavaScript API the AI (and, later, a CLI) drives.
   `ScriptSession` is a transactional copy of the open documents with a flat
   JSON-in/JSON-out op set over the pure `Document` ops; `ScriptPrelude` is
-  the JavaScript object model (`dezzy`, `doc`, `Layer`, `Group`) over one
+  the JavaScript object model (`brushy`, `doc`, `Layer`, `Group`) over one
   host call; `ScriptAPIDeclaration` is the `.d.ts` the model reads;
   `ScriptHost` runs a script in a fresh JavaScriptCore context with the
   execution-time watchdog (`JSContextGroupSetExecutionTimeLimit`, a private
@@ -121,7 +124,7 @@ independently of Core Image. Failures write red-pixel diffs to `test-output/`.
   top-left, y-down coordinates and short ids (`doc1`, `l3fa9c1`);
   `ScriptGeometry` flips to canvas space. A script that throws applies
   nothing.
-- `Dezzy/AI` — the chat: `GeminiClient` (the Interactions REST API, stateless
+- `Brushy/AI` — the chat: `GeminiClient` (the Interactions REST API, stateless
   with streaming, thought signatures echoed verbatim), `ChatSession` (the
   tool loop: `execute`, `look`, `generate_image`), `ChatStore` (app-level
   chat list, JSON under Application Support), `ChatPrompt` (system prompt +
@@ -129,22 +132,22 @@ independently of Core Image. Failures write red-pixel diffs to `test-output/`.
   requests need no inspection round trip). The API key lives in the
   Keychain (`APIKeys`), never in `UserDefaults`.
 
-- `Dezzy/Model` — value-type `Document`/`Layer`/`Mask`. Sources are
+- `Brushy/Model` — value-type `Document`/`Layer`/`Mask`. Sources are
   never mutated; crop shifts transforms only; masks are copy-on-write.
-- `Dezzy/Render` — the Core Image pipeline: linear Display P3
+- `Brushy/Render` — the Core Image pipeline: linear Display P3
   working space, Lanczos beyond 50% downscale, `CIBlendWithMask` masking,
   graph rebuilt per frame. The view transform folds into each layer transform
   so display cost scales with viewport pixels, not canvas pixels.
-- `Dezzy/Store` — snapshot undo: an array of document+selection
+- `Brushy/Store` — snapshot undo: an array of document+selection
   snapshots (100 deep by default and within a byte budget, both in Settings →
   Performance) bridged to `NSUndoManager` for menu names, projected read-only
   into the History panel.
-- `Dezzy/App/Defaults.swift` — the single `UserDefaults` path. Typed
+- `Brushy/App/Defaults.swift` — the single `UserDefaults` path. Typed
   keys grouped into pane-sized domains, an injectable backing store so tests
   never touch the real domain, and a LIVE / SEED-ONLY tag on every key.
-- `Dezzy/UI/Canvas` — AppKit event handling; pure, unit-tested geometry
+- `Brushy/UI/Canvas` — AppKit event handling; pure, unit-tested geometry
   (`TransformMath`, `SmartGuides`, `Viewport`) separated from the controller.
-- `Dezzy/Doc` — `NSDocument` + `.dezzy` package: `document.json`,
+- `Brushy/Doc` — `NSDocument` + `.brushy` package: `document.json`,
   lossless `sources/*.png` (deduped across duplicated layers), `masks/*.png`.
 
 Implementation choices worth knowing:
@@ -299,10 +302,10 @@ Implementation choices worth knowing:
   layers — CMYK/Lab/indexed/32-bit, `.psb`, or a file with no layer section
   — falls back to the flattened composite as one layer rather than refusing
   to open. `.psd` opens into an untitled document (no `fileURL`), so ⌘S
-  can't overwrite it through the `.dezzy` serializer.
+  can't overwrite it through the `.brushy` serializer.
 - Layer styles cross the PSD boundary in both directions: `PSDDescriptor`
   implements Adobe's descriptor format and `PSDEffects` maps it to
-  `LayerEffects`, so a styled layer exported from Dezzy opens in
+  `LayerEffects`, so a styled layer exported from Brushy opens in
   Photoshop as live, editable effects — and a styled Photoshop layer comes
   back the same way. Written channel data deliberately excludes the style
   (Photoshop applies `lfx2` itself; baking it would double it). Note the two
@@ -344,7 +347,7 @@ Implementation choices worth knowing:
   `NSWindowController`, not parented to a document), so ⌘, works with no
   document open and survives every document closing.
   The split that matters: **seed-only** settings are read once when a
-  `DocumentStore` / `DezzyDocument` / Export sheet is created and affect
+  `DocumentStore` / `BrushyDocument` / Export sheet is created and affect
   only the *next* one; **live** settings — grid spacing and subdivisions,
   guide and grid colours, snapping, undo depth — hang off an `AppSettings`
   singleton that open documents mirror, so they apply immediately to already

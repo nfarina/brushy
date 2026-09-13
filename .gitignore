@@ -12,7 +12,7 @@ build/
 .build/
 
 # Golden-image test harness failure artifacts (regenerated on failure;
-# the fixtures themselves under DezzyTests/Fixtures/ ARE tracked)
+# the fixtures themselves under BrushyTests/Fixtures/ ARE tracked)
 test-output/
 
 # Claude Code agent worktrees — temporary checkouts managed by the tool;

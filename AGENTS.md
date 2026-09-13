@@ -1,4 +1,4 @@
-# AGENTS.md — Dezzy
+# AGENTS.md — Brushy
 
 Architectural invariants and conventions for this repo, so task prompts don't
 have to carry them.
@@ -10,19 +10,19 @@ numbers may drift.
 
 ## Project
 
-Dezzy is a native macOS 14+ image editor: Swift + Core Image + an
+Brushy is a native macOS 14+ image editor: Swift + Core Image + an
 AppKit canvas + SwiftUI chrome, no nibs, no third-party dependencies.
-Xcode project at `Dezzy.xcodeproj`.
+Xcode project at `Brushy.xcodeproj`.
 
 ```bash
 # Build (use Release — Debug runs the brush engine's CPU paths ~10× slower)
-xcodebuild -project Dezzy.xcodeproj -scheme Dezzy -configuration Release build
+xcodebuild -project Brushy.xcodeproj -scheme Brushy -configuration Release build
 
 # Test
-xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test
+xcodebuild -project Brushy.xcodeproj -scheme Brushy test
 
 # Run the demo composite
-DEZZY_DEMO=1 open ~/Applications/Dezzy.app
+BRUSHY_DEMO=1 open ~/Applications/Brushy.app
 ```
 
 `README.md` covers the feature set, the build/install dance, and the headless
@@ -37,9 +37,9 @@ governs.
 ## Layout
 
 ```
-Dezzy/
+Brushy/
   App/      main.swift, AppDelegate.swift, MainMenu.swift, DemoDocument.swift, DebugSnapshot.swift
-  Doc/      DezzyDocument.swift (NSDocument), DocumentSerialization.swift,
+  Doc/      BrushyDocument.swift (NSDocument), DocumentSerialization.swift,
             PSDWriter.swift, PSDReader.swift, PSDFormat.swift, PSDDescriptor.swift, PSDEffects.swift
   Model/    Document.swift, DocumentOps.swift, LayerEffects.swift, Selection.swift,
             Geometry.swift, VectorContent.swift
@@ -59,7 +59,7 @@ Dezzy/
              CanvasMetalView.swift, CanvasOverlayView.swift (vector overlay),
              Tool.swift, TransformMath.swift, SmartGuides.swift, Viewport.swift,
              BrushEngine.swift, Cursors.swift, TextEditing*.swift
-DezzyTests/
+BrushyTests/
 ```
 
 `Store/DocumentStore.swift`, `UI/Canvas/CanvasController.swift` and
@@ -89,7 +89,7 @@ session. Every existing mutating store method does this; follow the pattern.
 **4. `Layer.source` is `let`.** Changing a layer's pixels means constructing a
 new `Layer` with a **fresh `sourceID`** — see `DocumentStore.endBrushStroke()`
 and `fillSelection(using:)` for the canonical pattern. Reusing the `sourceID`
-will make the `.dezzy` serializer serve stale cached PNG bytes
+will make the `.brushy` serializer serve stale cached PNG bytes
 (`DocumentSerializer` caches keyed on `sourceID`).
 
 **5. Imported photos are never painted.** `Layer.isPaintable` is false for
@@ -146,16 +146,16 @@ through `ImageImporter.normalize(_:orientation:)`. UI colour wells
 
 ### Adding a menu command
 
-1. Add an `@objc func` to `DezzyDocument` (`Doc/DezzyDocument.swift`)
+1. Add an `@objc func` to `BrushyDocument` (`Doc/BrushyDocument.swift`)
    that forwards to a `DocumentStore` method. The document is in the responder
    chain; the store holds the state.
 2. Add the item in `MainMenuBuilder.build()` (`App/MainMenu.swift`) — the menu
    is built in code, no nibs.
-3. Add a case to `DezzyDocument.validateUserInterfaceItem(_:)` so it
+3. Add a case to `BrushyDocument.validateUserInterfaceItem(_:)` so it
    enables/disables correctly. **Do not skip this** — an unvalidated selector
    falls through to `super` and behaves unpredictably.
 4. If the command must be unavailable while type is being edited in place, add
-   the selector to `DezzyDocument.actionsDisabledDuringTextEditing`.
+   the selector to `BrushyDocument.actionsDisabledDuringTextEditing`.
 
 **Bare-key shortcuts are not menu key equivalents.** Single keys (V, M, L, C,
 B, E, T, U, X, D, `[`, `]`, ⌫) are handled in `CanvasHostView.keyDown(with:)`
@@ -216,13 +216,13 @@ must be safe there (rasterisers and `MaskFactory` are).
 
 ### Tests
 
-XCTest in `DezzyTests/`. The pattern worth preserving: **pure geometry is
+XCTest in `BrushyTests/`. The pattern worth preserving: **pure geometry is
 extracted and unit-tested separately from the controller** — see
 `TransformMath`, `SmartGuides`, `Viewport` and their test files. New geometry
 (hit-testing, guide snapping, selection morphology) should be pure static
 functions with their own tests, not methods on `CanvasController`.
 
-Golden-image fixtures live in `DezzyTests/Fixtures/` (JSON + reference
+Golden-image fixtures live in `BrushyTests/Fixtures/` (JSON + reference
 PNGs); regenerate with `TEST_RUNNER_RECORD_FIXTURES=1`. Failures write
 red-pixel diffs to `test-output/`.
 
@@ -234,7 +234,7 @@ harness.
 
 ## What "done" looks like
 
-1. `xcodebuild -project Dezzy.xcodeproj -scheme Dezzy test` passes,
+1. `xcodebuild -project Brushy.xcodeproj -scheme Brushy test` passes,
    including the golden-image and performance tests (the §3 target is 8 layers
    at 6000×4000 within a 16.7 ms frame budget — don't regress the render path).
 2. New pure geometry has its own unit tests, separate from the controller.
@@ -250,4 +250,4 @@ harness.
    not representative.
 8. A change to what scripts can do updates `ScriptAPIDeclaration` and, when
    it changes how a model should behave, passes the live evals
-   (`TEST_RUNNER_DEZZY_EVAL=1 … -only-testing:DezzyTests/ChatEvalTests`).
+   (`TEST_RUNNER_BRUSHY_EVAL=1 … -only-testing:BrushyTests/ChatEvalTests`).

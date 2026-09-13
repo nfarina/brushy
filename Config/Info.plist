@@ -11,7 +11,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Dezzy</string>
+	<string>Brushy</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -30,24 +30,24 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Dezzy Document</string>
+			<string>Brushy Document</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.dezzy.document</string>
+				<string>com.nfarina.brushy.document</string>
 			</array>
 			<key>LSHandlerRank</key>
 			<string>Owner</string>
 			<key>LSTypeIsPackage</key>
 			<true/>
 			<key>NSDocumentClass</key>
-			<string>Dezzy.DezzyDocument</string>
+			<string>Brushy.BrushyDocument</string>
 		</dict>
 		<!-- Photoshop documents open as layers (PSDReader). Deliberately no
 		     NSDocumentClass: the app routes them through
 		     AppDelegate.handleOpen into an untitled document, so ⌘S can't
-		     overwrite a .psd through the .dezzy serializer. -->
+		     overwrite a .psd through the .brushy serializer. -->
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>Photoshop Document</string>
@@ -65,9 +65,9 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.dezzy.document</string>
+			<string>com.nfarina.brushy.document</string>
 			<key>UTTypeDescription</key>
-			<string>Dezzy Document</string>
+			<string>Brushy Document</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>com.apple.package</string>
@@ -77,15 +77,15 @@
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
-					<string>dezzy</string>
+					<string>brushy</string>
 				</array>
 			</dict>
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.dezzy.layer</string>
+			<string>com.nfarina.brushy.layer</string>
 			<key>UTTypeDescription</key>
-			<string>Dezzy Layer</string>
+			<string>Brushy Layer</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
