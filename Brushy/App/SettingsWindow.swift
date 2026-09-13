@@ -243,6 +243,7 @@ private struct GeneralSettingsPane: View {
         Defaults.set(Int(size.height), for: Defaults.Keys.newDocumentHeight)
         Defaults.set(new.startWithBlankLayer, for: Defaults.Keys.startWithBlankLayer)
         Defaults.set(new.reopenOnLaunch, for: Defaults.Keys.reopenDocumentsOnLaunch)
+        AppDelegate.applyReopenPreference()
     }
 }
 

@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        Self.applyReopenPreference()
         NSApp.mainMenu = MainMenuBuilder.build()
         Self.configureDocumentRegistry()
     }
@@ -87,10 +88,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
-    /// General pane → "Reopen documents on launch". AppKit's own
-    /// window restoration is the mechanism; the preference just gates it.
-    func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
-        Defaults.value(Defaults.Keys.reopenDocumentsOnLaunch)
+    /// General pane → "Reopen documents on launch". AppKit's window
+    /// restoration does the work (saved and untitled documents, tabs, window
+    /// frames), but only when the system's "Close windows when quitting an
+    /// application" is off — and it is on by default, so a plain ⌘Q brought
+    /// back nothing. `NSQuitAlwaysKeepsWindows` in Brushy's own defaults
+    /// domain overrides that system setting for this app alone. AppKit reads
+    /// it when quitting, so it is written at launch and again whenever the
+    /// preference changes.
+    static func applyReopenPreference() {
+        UserDefaults.standard.set(Defaults.value(Defaults.Keys.reopenDocumentsOnLaunch),
+                                  forKey: "NSQuitAlwaysKeepsWindows")
     }
 
     /// ⌘, — the standard macOS Settings item. It lives on the App menu and

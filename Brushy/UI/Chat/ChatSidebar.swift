@@ -33,6 +33,18 @@ struct ChatSidebar: View {
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if let cost = session.chat.totalCost {
+                    Text(AIPricing.format(cost))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.primary.opacity(0.1)))
+                        .fixedSize()
+                        .help(String(format: "About $%.4f at Gemini list prices, image generation included",
+                                     cost))
+                        .accessibilityLabel("Chat cost \(AIPricing.format(cost))")
+                }
             } else {
                 Text("Chats")
                     .font(.callout.weight(.semibold))

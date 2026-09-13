@@ -12,6 +12,8 @@ struct ToolOutcome {
     var status: ToolCallRecord.Status
     /// Bytes for the sidebar thumbnail (a look rendering, a generated image).
     var displayImage: Data?
+    /// What the tool spent on another model (the image model), in dollars.
+    var cost: Double?
 }
 
 /// The three tools. `execute` is the workhorse; `look` and `generate_image`
@@ -27,11 +29,16 @@ final class ChatTools {
     /// JPEG. Defaults to `imageClient`; tests substitute a stub.
     var generateImageData: ((String, [Data], String, String) async throws -> Data)?
 
-    private func generateData(prompt: String, references: [Data], ratio: String, size: String) async throws -> Data {
-        if let generateImageData { return try await generateImageData(prompt, references, ratio, size) }
+    /// The image, plus what it cost at list prices when the real client ran
+    /// (a stub reports none).
+    private func generateData(prompt: String, references: [Data], ratio: String,
+                              size: String) async throws -> (data: Data, cost: Double?) {
+        if let generateImageData { return (try await generateImageData(prompt, references, ratio, size), nil) }
         guard let client = imageClient() else { throw GeminiError.missingKey }
-        return try await client.generateImage(model: imageModel(), prompt: prompt, references: references,
-                                              aspectRatio: ratio, imageSize: size)
+        let model = imageModel()
+        let result = try await client.generateImage(model: model, prompt: prompt, references: references,
+                                                    aspectRatio: ratio, imageSize: size)
+        return (result.data, result.usage.flatMap { AIPricing.cost(model: model, usage: $0) })
     }
 
     init(registry: DocumentRegistry, runner: ScriptRunner) {
@@ -271,14 +278,16 @@ final class ChatTools {
             }
         }
 
-        let data: Data
+        let generated: (data: Data, cost: Double?)
         do {
-            data = try await generateData(prompt: prompt, references: references, ratio: ratio, size: size)
+            generated = try await generateData(prompt: prompt, references: references, ratio: ratio, size: size)
         } catch {
             return ToolOutcome(text: "Image generation failed: \(error.localizedDescription)", image: nil, status: .failed)
         }
+        let data = generated.data
         guard let image = Self.decode(data) else {
-            return ToolOutcome(text: "The generated image could not be decoded.", image: nil, status: .failed)
+            return ToolOutcome(text: "The generated image could not be decoded.", image: nil, status: .failed,
+                               cost: generated.cost)
         }
         let name = call.string("name").flatMap { $0.isEmpty ? nil : $0 } ?? "Generated: " + String(prompt.prefix(24))
         var placement: [String: Any] = ["name": name]
@@ -297,6 +306,7 @@ final class ChatTools {
             }
         }
         var outcome = Self.outcome(for: result)
+        outcome.cost = generated.cost
         if outcome.status == .succeeded {
             var text = "Generated a \(image.width)×\(image.height) image (\(ratio))"
             if !referenceNames.isEmpty { text += " guided by " + referenceNames.map { "\"\($0)\"" }.joined(separator: ", ") }
@@ -371,15 +381,17 @@ extension ChatTools {
             return ToolOutcome(text: "Could not render the area.", image: nil, status: .failed)
         }
 
-        let data: Data
+        let generated: (data: Data, cost: Double?)
         do {
-            data = try await generateData(prompt: ImageEdit.prompt(for: prompt, outlined: outline),
-                                          references: [jpeg], ratio: ratio, size: size)
+            generated = try await generateData(prompt: ImageEdit.prompt(for: prompt, outlined: outline),
+                                               references: [jpeg], ratio: ratio, size: size)
         } catch {
             return ToolOutcome(text: "Image edit failed: \(error.localizedDescription)", image: nil, status: .failed)
         }
+        let data = generated.data
         guard let image = Self.decode(data) else {
-            return ToolOutcome(text: "The edited image could not be decoded.", image: nil, status: .failed)
+            return ToolOutcome(text: "The edited image could not be decoded.", image: nil, status: .failed,
+                               cost: generated.cost)
         }
         let name = call.string("name").flatMap { $0.isEmpty ? nil : $0 } ?? "Edit: " + String(prompt.prefix(24))
         let code = ImageEdit.placementScript(document: id, frame: frame, region: explicitRegion, name: name)
@@ -388,6 +400,7 @@ extension ChatTools {
                        images: ["generated": image]) { continuation.resume(returning: $0) }
         }
         var outcome = Self.outcome(for: result)
+        outcome.cost = generated.cost
         if outcome.status == .succeeded {
             let f = "\(Int(frame.minX)), \(Int(frame.minY)) \(Int(frame.width))×\(Int(frame.height))"
             outcome.text = "Edited the area (\(Int(region.width))×\(Int(region.height)) at \(Int(region.minX)), \(Int(region.minY)); model saw \(f) at \(ratio)) and placed the result as a new layer masked to it. "

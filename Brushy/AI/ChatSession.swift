@@ -3,6 +3,8 @@ import Foundation
 /// One model turn, provider-neutral enough that a second provider is a
 /// second conformance. The history is the provider's own step format.
 protocol ChatProvider {
+    /// The model id, for pricing a turn (`AIPricing`).
+    var model: String { get }
     func interact(systemInstruction: String, tools: [ToolDeclaration], input: [JSONValue],
                   onEvent: @escaping (GeminiStreamEvent) -> Void) async throws -> Interaction
 }
@@ -35,7 +37,9 @@ final class ChatSession: ObservableObject {
     var contextProvider: () -> String
     var onChange: ((Chat) -> Void)?
 
-    static let maxToolRounds = 10
+    /// A backstop for a model stuck in a loop, not a budget: the sidebar's
+    /// stop button is the real control.
+    static let maxToolRounds = 50
 
     private var task: Task<Void, Never>?
 
@@ -95,6 +99,8 @@ final class ChatSession: ObservableObject {
                 chat.messages.append(ChatMessage(role: .error, text: error.localizedDescription))
                 return
             }
+            // The round's model cost goes on the first message it produces.
+            let roundStart = chat.messages.count
             var streamingIndex: Int?
             let interaction: Interaction
             do {
@@ -121,15 +127,17 @@ final class ChatSession: ObservableObject {
                 return
             }
             chat.history.append(contentsOf: interaction.steps)
+            var pendingCost: Double?
             if let usage = interaction.usage {
-                chat.usage.inputTokens += usage.inputTokens
-                chat.usage.outputTokens += usage.outputTokens
-                chat.usage.thoughtTokens += usage.thoughtTokens
-                chat.usage.cachedTokens += usage.cachedTokens
+                chat.usage.add(usage)
+                pendingCost = AIPricing.cost(model: provider.model, usage: usage)
             }
             finishStreaming(at: streamingIndex, text: interaction.text)
+            addCost(&pendingCost, toMessageAt: roundStart)
             let calls = interaction.functionCalls
             if calls.isEmpty {
+                // A turn with nothing to show still cost something.
+                addCost(&pendingCost, toMessageAt: chat.messages.count - 1)
                 touch()
                 return
             }
@@ -148,6 +156,7 @@ final class ChatSession: ObservableObject {
                                             arguments: Self.arguments(of: call))
                 chat.messages.append(ChatMessage(role: .tool, tool: record))
                 let index = chat.messages.count - 1
+                addCost(&pendingCost, toMessageAt: roundStart)
                 touch()
                 let started = Date()
                 let outcome = await tools.run(call)
@@ -155,16 +164,28 @@ final class ChatSession: ObservableObject {
                 chat.messages[index].tool?.result = outcome.text
                 chat.messages[index].tool?.imageData = outcome.displayImage
                 chat.messages[index].tool?.duration = Date().timeIntervalSince(started)
+                var toolCost = outcome.cost
+                addCost(&toolCost, toMessageAt: index)
                 chat.history.append(ChatPrompt.functionResult(callID: call.id, name: call.name,
                                                               text: outcome.text, image: outcome.image))
                 touch()
             }
+            // Every call was cancelled before it ran.
+            addCost(&pendingCost, toMessageAt: chat.messages.count - 1)
             if Task.isCancelled {
                 chat.messages.append(ChatMessage(role: .error, text: "Stopped."))
                 return
             }
         }
         chat.messages.append(ChatMessage(role: .error, text: "Stopped after \(Self.maxToolRounds) tool calls without a final answer."))
+    }
+
+    /// Adds `cost` to the message at `index` and clears it; leaves it pending
+    /// when that message doesn't exist yet.
+    private func addCost(_ cost: inout Double?, toMessageAt index: Int) {
+        guard let amount = cost, chat.messages.indices.contains(index) else { return }
+        chat.messages[index].cost = (chat.messages[index].cost ?? 0) + amount
+        cost = nil
     }
 
     private func finishStreaming(at index: Int?, text: String?) {

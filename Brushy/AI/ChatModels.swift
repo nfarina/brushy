@@ -17,6 +17,14 @@ struct Chat: Codable, Identifiable, Equatable {
     var usage = InteractionUsage()
 
     var isEmpty: Bool { messages.isEmpty }
+
+    /// The chat's cost so far at list prices, summed from its messages; nil
+    /// when nothing priced has happened (including chats from before costs
+    /// were recorded).
+    var totalCost: Double? {
+        let costs = messages.compactMap(\.cost)
+        return costs.isEmpty ? nil : costs.reduce(0, +)
+    }
 }
 
 struct ChatMessage: Codable, Identifiable, Equatable {
@@ -31,6 +39,11 @@ struct ChatMessage: Codable, Identifiable, Equatable {
     var createdAt = Date()
     /// True while the model is still producing this message.
     var isStreaming = false
+    /// What producing this message cost, in dollars at list prices: the
+    /// model turn that wrote it (a turn's cost goes on its first message),
+    /// plus any image-model call its tool made. Nil when nothing priced was
+    /// spent here, or for messages saved before costs were recorded.
+    var cost: Double?
 }
 
 /// A tool call as the sidebar shows it: what was asked, what happened.

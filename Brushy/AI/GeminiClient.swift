@@ -23,11 +23,14 @@ struct FunctionCall: Equatable {
     func double(_ key: String) -> Double? { arguments[key]?.doubleValue }
 }
 
+/// Token counts for a call — see `AIPricing` for how they bill.
 struct InteractionUsage: Equatable, Codable {
     var inputTokens = 0
+    /// Excludes thinking; includes `imageOutputTokens`.
     var outputTokens = 0
     var thoughtTokens = 0
     var cachedTokens = 0
+    var imageOutputTokens = 0
 
     init(inputTokens: Int = 0, outputTokens: Int = 0, thoughtTokens: Int = 0, cachedTokens: Int = 0) {
         self.inputTokens = inputTokens
@@ -41,6 +44,28 @@ struct InteractionUsage: Equatable, Codable {
         outputTokens = json["total_output_tokens"]?.intValue ?? 0
         thoughtTokens = json["total_thought_tokens"]?.intValue ?? 0
         cachedTokens = json["total_cached_tokens"]?.intValue ?? 0
+        imageOutputTokens = (json["output_tokens_by_modality"]?.arrayValue ?? [])
+            .filter { $0["modality"]?.stringValue == "image" }
+            .compactMap { $0["tokens"]?.intValue }
+            .reduce(0, +)
+    }
+
+    /// Chats saved before a field existed decode it as 0.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens) ?? 0
+        outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
+        thoughtTokens = try container.decodeIfPresent(Int.self, forKey: .thoughtTokens) ?? 0
+        cachedTokens = try container.decodeIfPresent(Int.self, forKey: .cachedTokens) ?? 0
+        imageOutputTokens = try container.decodeIfPresent(Int.self, forKey: .imageOutputTokens) ?? 0
+    }
+
+    mutating func add(_ other: InteractionUsage) {
+        inputTokens += other.inputTokens
+        outputTokens += other.outputTokens
+        thoughtTokens += other.thoughtTokens
+        cachedTokens += other.cachedTokens
+        imageOutputTokens += other.imageOutputTokens
     }
 }
 
@@ -158,11 +183,12 @@ final class GeminiClient {
         return assembler.interaction
     }
 
-    /// Text (and optional reference images) → one image. `aspectRatio` like
-    /// "16:9"; `imageSize` one of "512", "1K", "2K", "4K". Output is JPEG —
-    /// the only format the API produces.
+    /// Text (and optional reference images) → one image, with the call's
+    /// usage for pricing. `aspectRatio` like "16:9"; `imageSize` one of
+    /// "512", "1K", "2K", "4K". Output is JPEG — the only format the API
+    /// produces.
     func generateImage(model: String, prompt: String, references: [Data] = [],
-                       aspectRatio: String, imageSize: String) async throws -> Data {
+                       aspectRatio: String, imageSize: String) async throws -> (data: Data, usage: InteractionUsage?) {
         var parts: [JSONValue] = [.object(["type": .string("text"), "text": .string(prompt)])]
         for reference in references {
             parts.append(.object(["type": .string("image"), "mime_type": .string("image/jpeg"),
@@ -183,7 +209,7 @@ final class GeminiClient {
         for step in json["steps"]?.arrayValue ?? [] where step["type"]?.stringValue == "model_output" {
             for part in step["content"]?.arrayValue ?? [] where part["type"]?.stringValue == "image" {
                 if let base64 = part["data"]?.stringValue, let bytes = Data(base64Encoded: base64) {
-                    return bytes
+                    return (bytes, json["usage"].map(InteractionUsage.init(json:)))
                 }
             }
         }

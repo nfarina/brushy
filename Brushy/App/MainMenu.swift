@@ -44,6 +44,15 @@ enum MainMenuBuilder {
                      keyEquivalent: "n")
         file.addItem(withTitle: "Open…", action: #selector(AppDelegate.openDocumentAction(_:)),
                      keyEquivalent: "o")
+        // AppKit fills this in: NSDocumentController adopts any submenu that
+        // contains a `clearRecentDocuments:` item and keeps the recent
+        // .brushy files above it. (Images and PSDs open as untitled
+        // documents, so they never become recents.)
+        let recent = NSMenu(title: "Open Recent")
+        recent.addItem(withTitle: "Clear Menu",
+                       action: #selector(NSDocumentController.clearRecentDocuments(_:)),
+                       keyEquivalent: "")
+        file.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "").submenu = recent
         // Open as Layer and Place are the same operation under two names
         //: users reaching for ⌘O to add a layer find the layer path
         // right below Open, instead of a panel hint telling them they picked

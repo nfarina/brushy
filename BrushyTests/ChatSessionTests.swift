@@ -11,6 +11,7 @@ final class ChatSessionTests: XCTestCase {
         var turns: [Interaction]
         var inputs: [[JSONValue]] = []
         var systemInstructions: [String] = []
+        var model = "gemini-3.8-flash"
         init(turns: [Interaction]) { self.turns = turns }
 
         func interact(systemInstruction: String, tools: [ToolDeclaration], input: [JSONValue],
@@ -109,6 +110,16 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertTrue(first.hasPrefix("[Context]\nActive document:\ndoc1 \"Untitled\" 400×300 px, 2 layers"), first)
         XCTAssertTrue(first.hasSuffix("[Message]\nmove A down 50"))
         XCTAssertEqual(session.chat.usage.inputTokens, 300)
+        // Each round's cost sits on the first message it produced: the tool
+        // row for the turn that called it, the answer for the last turn.
+        let firstTurn = AIPricing.cost(model: "gemini-3.8-flash",
+                                       usage: InteractionUsage(inputTokens: 100, outputTokens: 10))!
+        let secondTurn = AIPricing.cost(model: "gemini-3.8-flash",
+                                        usage: InteractionUsage(inputTokens: 200, outputTokens: 8))!
+        XCTAssertNil(session.chat.messages[0].cost)
+        XCTAssertEqual(session.chat.messages[1].cost ?? 0, firstTurn, accuracy: 1e-12)
+        XCTAssertEqual(session.chat.messages[2].cost ?? 0, secondTurn, accuracy: 1e-12)
+        XCTAssertEqual(session.chat.totalCost ?? 0, firstTurn + secondTurn, accuracy: 1e-12)
         XCTAssertFalse(saved.isEmpty)
     }
 

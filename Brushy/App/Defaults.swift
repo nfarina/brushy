@@ -244,8 +244,9 @@ extension Defaults {
         /// hardcoded in `BrushyDocument.init`; now a preference.
         static let startWithBlankLayer = DefaultsKey("newDoc.startWithBlankLayer",
                                                      default: true, domain: .newDoc)
-        /// SEED-ONLY — gates AppKit's window/document state restoration at
-        /// launch (`AppDelegate.applicationShouldRestoreApplicationState`).
+        /// Mirrored into `NSQuitAlwaysKeepsWindows`, which is what makes
+        /// AppKit restore documents on the next launch
+        /// (`AppDelegate.applyReopenPreference`).
         static let reopenDocumentsOnLaunch = DefaultsKey("newDoc.reopenOnLaunch",
                                                          default: true, domain: .newDoc)
 

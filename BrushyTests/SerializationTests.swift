@@ -1,8 +1,36 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import XCTest
 
 final class SerializationTests: XCTestCase {
+    /// Quick Look shows these from inside the package: a thumbnail and a
+    /// preview of the flattened canvas, scaled to fit and never enlarged.
+    func testPackageCarriesQuickLookImages() throws {
+        let p3 = BrushyColorSpace.displayP3
+        func quickLookSizes(canvas: CGSize) throws -> [String: CGSize] {
+            var document = Document(canvasSize: canvas)
+            document.layers = [Layer(name: "Fill",
+                                     source: GeneratedImages.solid(width: Int(canvas.width),
+                                                                   height: Int(canvas.height),
+                                                                   r: 200, g: 30, b: 60, colorSpace: p3))]
+            let files = try XCTUnwrap(DocumentSerializer().fileWrapper(for: document)
+                .fileWrappers?["QuickLook"]?.fileWrappers)
+            return try files.mapValues { wrapper in
+                let data = try XCTUnwrap(wrapper.regularFileContents)
+                let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+                let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+                return CGSize(width: image.width, height: image.height)
+            }
+        }
+        let large = try quickLookSizes(canvas: CGSize(width: 2000, height: 1000))
+        XCTAssertEqual(large["Thumbnail.png"], CGSize(width: 512, height: 256))
+        XCTAssertEqual(large["Preview.png"], CGSize(width: 1600, height: 800))
+        let small = try quickLookSizes(canvas: CGSize(width: 300, height: 200))
+        XCTAssertEqual(small["Thumbnail.png"], CGSize(width: 300, height: 200))
+        XCTAssertEqual(small["Preview.png"], CGSize(width: 300, height: 200))
+    }
+
     /// round-trip: canvas, layer metadata, transforms, pixels, masks and
     /// shared sources all survive write → read.
     func testCompdocRoundTrip() throws {

@@ -160,11 +160,50 @@ final class DocumentSerializer {
         sourcePNGCache = sourcePNGCache.filter { liveSourceIDs.contains($0.key) }
         maskPNGCache = maskPNGCache.filter { liveMaskIDs.contains($0.key) }
 
-        return FileWrapper(directoryWithFileWrappers: [
+        var package: [String: FileWrapper] = [
             "document.json": FileWrapper(regularFileWithContents: json),
             "sources": FileWrapper(directoryWithFileWrappers: sourceFiles),
             "masks": FileWrapper(directoryWithFileWrappers: maskFiles),
-        ])
+        ]
+        if let quickLook = Self.quickLookFiles(for: document) {
+            package["QuickLook"] = FileWrapper(directoryWithFileWrappers: quickLook)
+        }
+        return FileWrapper(directoryWithFileWrappers: package)
+    }
+
+    // MARK: Quick Look
+
+    /// Finder icons and space-bar previews with no extension at all: for a
+    /// package type, Quick Look shows `QuickLook/Thumbnail.png` and
+    /// `QuickLook/Preview.png` from inside the package (verified with
+    /// qlmanage on macOS 27, 2026-09-13). Reading ignores the folder.
+    /// Rendered fresh on every save from a downscaled composite, which costs
+    /// a fraction of a full-size render.
+    static let thumbnailMaxEdge: CGFloat = 512
+    static let previewMaxEdge: CGFloat = 1600
+
+    static func quickLookFiles(for document: Document) -> [String: FileWrapper]? {
+        guard let thumbnail = quickLookImage(document, maxEdge: thumbnailMaxEdge).flatMap(encodePNG),
+              let preview = quickLookImage(document, maxEdge: previewMaxEdge).flatMap(encodePNG) else {
+            return nil
+        }
+        return ["Thumbnail.png": FileWrapper(regularFileWithContents: thumbnail),
+                "Preview.png": FileWrapper(regularFileWithContents: preview)]
+    }
+
+    /// The flattened canvas, scaled to fit `maxEdge` (never enlarged).
+    static func quickLookImage(_ document: Document, maxEdge: CGFloat) -> CGImage? {
+        let size = document.canvasSize
+        guard size.width >= 1, size.height >= 1 else { return nil }
+        let scale = min(1, maxEdge / max(size.width, size.height))
+        let rect = CGRect(x: 0, y: 0,
+                          width: max(1, (size.width * scale).rounded()),
+                          height: max(1, (size.height * scale).rounded()))
+        let engine = RenderEngine.shared
+        let image = engine.compositeImage(for: document,
+                                          outputTransform: CGAffineTransform(scaleX: scale, y: scale))
+        return engine.context.createCGImage(image, from: rect, format: .RGBA8,
+                                            colorSpace: BrushyColorSpace.displayP3)
     }
 
     private func sourcePNG(for layer: Layer) throws -> Data? {
