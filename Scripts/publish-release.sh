@@ -40,6 +40,13 @@ ZIP_PATH="dist/Brushy-${VERSION}-macos.zip"
 
 command -v gh >/dev/null 2>&1 || { echo "The 'gh' CLI is required. brew install gh" >&2; exit 1; }
 
+# This checkout has two GitHub remotes (origin, plus upstream for the Dezzy
+# fork parent), and gh refuses to guess between them — every gh call below
+# fails with "No default remote repository has been set". Pin it to origin.
+GH_REPO="$(git remote get-url origin | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
+export GH_REPO
+echo "Releasing to ${GH_REPO}"
+
 # If no notes file was provided, pop up the user's editor with a template.
 # Mirrors `git commit` — empty/unsaved → abort the release. HTML comments are
 # used for instructions so markdown headings in the notes aren't misread as
