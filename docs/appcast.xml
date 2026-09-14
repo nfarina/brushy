@@ -6,6 +6,22 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.2</title>
+            <pubDate>Mon, 14 Sep 2026 13:44:10 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.2</sparkle:fullReleaseNotesLink>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Brushy now appears in Finder's Open With menu for PNG, JPEG, GIF, TIFF, HEIC, WebP, AVIF, BMP and JPEG XL images, and accepts images dropped on its Dock icon. Each opens as a new document with the image as its only layer.
+- Image Size: typing into the width or height field no longer changes the number as you type.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.2/Brushy-macos.zip" length="5736207" type="application/octet-stream" sparkle:edSignature="Myhi/AL3FA5GJvuVT/yE5iEhTtXnpkcghnpjmxKJZsPO+crYNd3miz45YOEgnIIev/vfF+Pjg3I5XxEfhyu/AQ=="/>
+        </item>
+        <item>
             <title>0.2.1</title>
             <pubDate>Mon, 14 Sep 2026 07:16:29 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
