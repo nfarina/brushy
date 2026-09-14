@@ -6,6 +6,24 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.1</title>
+            <pubDate>Mon, 14 Sep 2026 07:16:29 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.1</sparkle:fullReleaseNotesLink>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Image Size: the link button and "px" label now line up with the width and height fields (#1).
+- Eyedropper: the sample size control no longer overlaps its label and the colour swatches (#2).
+
+Thanks to @yjsoon for both reports.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.1/Brushy-macos.zip" length="5736790" type="application/octet-stream" sparkle:edSignature="TKrm5dep3PGZfdr5HXBxhv/8CNEwFo0ziZf7MFVYcI5KSzIv4udo0JYQLBBb9NHY0UXFBHRv2e3zdxUAp81VBQ=="/>
+        </item>
+        <item>
             <title>0.2.0</title>
             <pubDate>Sun, 13 Sep 2026 15:53:05 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
