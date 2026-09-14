@@ -6,6 +6,25 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.3</title>
+            <pubDate>Mon, 14 Sep 2026 15:50:47 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.3</sparkle:fullReleaseNotesLink>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Layer thumbnails: ⌘⇧-click adds a layer's pixels to the selection, ⌘⌥-click subtracts them, and ⌘⇧⌥-click intersects, keeping soft edges. ⌘-click still selects them.
+- Marquee, lasso and magic wand: ⇧⌥ now intersects with the selection.
+- Selection cursors show a +, − or × badge for add, subtract and intersect, on the canvas and over a layer thumbnail while ⌘ is held.
+- View ▸ Show Selection Edges (⇧⌘H) hides or shows the selection's marching ants.
+- Marquee: a ⇧ or ⌥ you're already holding when you click only picks add or subtract. Release and press it again mid-drag to square or centre the rectangle, as in Photoshop.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.3/Brushy-macos.zip" length="5749589" type="application/octet-stream" sparkle:edSignature="K3dBCAFjveparu9ulgCzKBQ3PGquPeDHTngVhmrP72ijyA1aGa7vimzbKaeqzDcaIilFG5CKjYDeGvH8Atv+CQ=="/>
+        </item>
+        <item>
             <title>0.2.2</title>
             <pubDate>Mon, 14 Sep 2026 13:44:10 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -38,20 +57,6 @@
 Thanks to @yjsoon for both reports.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.1/Brushy-macos.zip" length="5736790" type="application/octet-stream" sparkle:edSignature="TKrm5dep3PGZfdr5HXBxhv/8CNEwFo0ziZf7MFVYcI5KSzIv4udo0JYQLBBb9NHY0UXFBHRv2e3zdxUAp81VBQ=="/>
-        </item>
-        <item>
-            <title>0.2.0</title>
-            <pubDate>Sun, 13 Sep 2026 15:53:05 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.0</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1</sparkle:version>
-            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Everything]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.0/Brushy-macos.zip" length="5732379" type="application/octet-stream" sparkle:edSignature="kB6JBmdHsolHAXEwNsOC1T2TYLpA/XLKye4DeLM6PvMw0lG3H9G5qgts5BUHAHXw6YPehFmcK2Q+5+Zc0AbNDg=="/>
         </item>
     </channel>
 </rss>
