@@ -213,6 +213,7 @@ final class BrushyDocument: NSDocument {
     @objc func toggleGrid(_ sender: Any?) { store.gridVisible.toggle() }
     @objc func togglePixelGrid(_ sender: Any?) { store.pixelGridVisible.toggle() }
     @objc func toggleSnapping(_ sender: Any?) { store.snappingEnabled.toggle() }
+    @objc func toggleSelectionEdges(_ sender: Any?) { store.selectionEdgesVisible.toggle() }
     /// Tab on the canvas does the same — Photoshop's "just the artwork" view.
     @objc func togglePanels(_ sender: Any?) { store.panelsHidden.toggle() }
 
@@ -369,6 +370,9 @@ final class BrushyDocument: NSDocument {
             return true
         case #selector(toggleSnapping(_:)):
             (item as? NSMenuItem)?.state = store.snappingEnabled ? .on : .off
+            return true
+        case #selector(toggleSelectionEdges(_:)):
+            (item as? NSMenuItem)?.state = store.selectionEdgesVisible ? .on : .off
             return true
         case #selector(clearGuides(_:)):
             return !store.document.guides.isEmpty

@@ -68,6 +68,10 @@ final class DocumentStore: ObservableObject {
     @Published var rightPanel: RightPanel = .layers
     /// Tab (on the canvas) or View ▸ Hide Panels: only the canvas stays.
     /// Per window and never persisted, like Photoshop's.
+    /// View ▸ Show Selection Edges (⇧⌘H). Hides the committed selection's
+    /// marching ants only — the selection still applies, and a marquee or
+    /// lasso being drawn still shows its outline. Per window, not persisted.
+    @Published var selectionEdgesVisible = true
     @Published var panelsHidden = false
     @Published var activeTool: Tool = .move {
         didSet { toolDidChange(from: oldValue) }

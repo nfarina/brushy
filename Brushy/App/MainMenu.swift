@@ -341,6 +341,11 @@ enum MainMenuBuilder {
         // Photoshop's View ▸ Show ▸ Pixel Grid; draws only above 500% zoom.
         view.addItem(withTitle: "Show Pixel Grid",
                      action: #selector(BrushyDocument.togglePixelGrid(_:)), keyEquivalent: "")
+        // ⇧⌘H: ⌘H and ⌥⌘H are the app menu's Hide / Hide Others.
+        let selectionEdges = view.addItem(withTitle: "Show Selection Edges",
+                                          action: #selector(BrushyDocument.toggleSelectionEdges(_:)),
+                                          keyEquivalent: "h")
+        selectionEdges.keyEquivalentModifierMask = [.command, .shift]
         let snap = view.addItem(withTitle: "Snap",
                                 action: #selector(BrushyDocument.toggleSnapping(_:)),
                                 keyEquivalent: ";")

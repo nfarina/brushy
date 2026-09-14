@@ -58,7 +58,8 @@ final class CanvasOverlayView: NSView {
             // transformed outline; the committed selection is hidden until
             // commit/cancel resolves it.
             drawAnts(session.currentPath, viewport: viewport)
-        } else if let path = store.liveSelectionPath, !store.movingSelectionOutline {
+        } else if store.selectionEdgesVisible,
+                  let path = store.liveSelectionPath, !store.movingSelectionOutline {
             drawAnts(path, viewport: viewport)
         }
         if let preview = store.previewSelectionPath {
@@ -170,7 +171,8 @@ final class CanvasOverlayView: NSView {
     // MARK: Marching ants
 
     private func manageAntsTimer() {
-        let needsAnts = store.selection.path != nil || store.previewSelectionPath != nil
+        let needsAnts = (store.selectionEdgesVisible && store.selection.path != nil)
+            || store.previewSelectionPath != nil || store.selectionTransformSession != nil
         if needsAnts && antsTimer == nil {
             antsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
                 guard let self else { return }
