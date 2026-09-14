@@ -55,6 +55,20 @@ enum DebugSnapshot {
                 }
                 return
             }
+            // BRUSHY_SNAPSHOT_STATE=imagesizewindow: the Image Size dialog in a
+            // real window of its own, captured the same way.
+            if ProcessInfo.processInfo.environment["BRUSHY_SNAPSHOT_STATE"] == "imagesizewindow" {
+                let dialog = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 360, height: 250),
+                                      styleMask: [.titled], backing: .buffered, defer: false)
+                dialog.contentView = NSHostingView(rootView: ImageSizeSheet(store: document.store))
+                dialog.center()
+                dialog.makeKeyAndOrderFront(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    captureThroughWindowServer(dialog, to: URL(fileURLWithPath: path))
+                    exit(0)
+                }
+                return
+            }
             embedDialogIfRequested(in: window, store: document.store)
             // Give SwiftUI a runloop pass to rebuild panels before capturing —
             // and let async store work (Select Subject's Vision request) land
@@ -233,6 +247,8 @@ enum DebugSnapshot {
             store.beginBrushStroke(at: CGPoint(x: 300, y: 520), eraser: true)
             store.continueBrushStroke(to: CGPoint(x: 480, y: 330))
             store.endBrushStroke()
+        case "eyedropper":
+            store.activeTool = .eyedropper
         case "panelshidden":
             // Tab: only the canvas.
             store.panelsHidden = true

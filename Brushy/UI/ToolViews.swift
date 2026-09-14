@@ -420,7 +420,7 @@ struct ToolOptionsBar: View {
 
     private var eyedropperOptions: some View {
         HStack(spacing: 10) {
-            Text("Sample Size").font(.caption)
+            Text("Sample Size").font(.caption).fixedSize()
             Picker("", selection: $store.eyedropperSampleSize) {
                 Text("Point Sample").tag(1)
                 Text("3×3").tag(3)
@@ -428,7 +428,9 @@ struct ToolOptionsBar: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 200)
+            // Segments are equal width, sized to "Point Sample"; a narrower
+            // frame lets the control draw over its neighbours.
+            .fixedSize()
             .help("Average over an N×N box of canvas pixels (zoom-independent)")
             Divider().frame(height: 18)
             ColorChipButton(store: store, target: .foreground,

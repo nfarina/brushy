@@ -25,15 +25,24 @@ struct ImageSizeSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 8) {
-                sizeField("Width", $width)
-                Toggle(isOn: $proportional) {
-                    Image(systemName: proportional ? "link" : "link.badge.plus")
+            // Captions get their own row so the link toggle and unit centre
+            // on the input boxes, not on caption + input.
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+                GridRow {
+                    fieldCaption("Width")
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    fieldCaption("Height")
                 }
-                .toggleStyle(.button)
-                .help("Constrain proportions")
-                sizeField("Height", $height)
-                Text("px").foregroundStyle(.secondary)
+                GridRow {
+                    sizeField($width)
+                    Toggle(isOn: $proportional) {
+                        Image(systemName: proportional ? "link" : "link.badge.plus")
+                    }
+                    .toggleStyle(.button)
+                    .help("Constrain proportions")
+                    sizeField($height)
+                    Text("px").foregroundStyle(.secondary)
+                }
             }
 
             Text("Layers are rescaled through their transforms and re-rendered from the original pixels — repeated resizes lose no quality.")
@@ -73,14 +82,15 @@ struct ImageSizeSheet: View {
         }
     }
 
-    private func sizeField(_ label: String, _ value: Binding<Int>) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
-            TextField("", value: value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 90)
-                .multilineTextAlignment(.trailing)
-        }
+    private func fieldCaption(_ label: String) -> some View {
+        Text(label).font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func sizeField(_ value: Binding<Int>) -> some View {
+        TextField("", value: value, format: .number)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 90)
+            .multilineTextAlignment(.trailing)
     }
 }
 
