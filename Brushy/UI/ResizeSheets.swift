@@ -10,7 +10,6 @@ struct ImageSizeSheet: View {
     @State private var width: Int = 0
     @State private var height: Int = 0
     @State private var proportional = true
-    @State private var suppressLink = false
 
     private var currentSize: CGSize { store.document.canvasSize }
     private var aspect: Double {
@@ -34,13 +33,13 @@ struct ImageSizeSheet: View {
                     fieldCaption("Height")
                 }
                 GridRow {
-                    sizeField($width)
+                    sizeField(widthBinding)
                     Toggle(isOn: $proportional) {
                         Image(systemName: proportional ? "link" : "link.badge.plus")
                     }
                     .toggleStyle(.button)
                     .help("Constrain proportions")
-                    sizeField($height)
+                    sizeField(heightBinding)
                     Text("px").foregroundStyle(.secondary)
                 }
             }
@@ -68,18 +67,24 @@ struct ImageSizeSheet: View {
             width = Int(currentSize.width)
             height = Int(currentSize.height)
         }
-        .onChange(of: width) { _, newValue in
-            guard proportional, !suppressLink else { return }
-            suppressLink = true
-            height = max(1, Int((Double(newValue) / aspect).rounded()))
-            suppressLink = false
-        }
-        .onChange(of: height) { _, newValue in
-            guard proportional, !suppressLink else { return }
-            suppressLink = true
-            width = max(1, Int((Double(newValue) * aspect).rounded()))
-            suppressLink = false
-        }
+    }
+
+    // Linking lives in the bindings so only the user's edit drives the other
+    // field. An onChange pair ran after any suppress flag was reset, so each
+    // keystroke's rounded result fed back into the field being typed in
+    // (typing 3000 could land on 3100).
+    private var widthBinding: Binding<Int> {
+        Binding(get: { width }, set: { newValue in
+            width = newValue
+            if proportional { height = max(1, Int((Double(newValue) / aspect).rounded())) }
+        })
+    }
+
+    private var heightBinding: Binding<Int> {
+        Binding(get: { height }, set: { newValue in
+            height = newValue
+            if proportional { width = max(1, Int((Double(newValue) * aspect).rounded())) }
+        })
     }
 
     private func fieldCaption(_ label: String) -> some View {

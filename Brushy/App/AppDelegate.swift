@@ -238,10 +238,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// The document an opened file should land in: a pristine untitled window
     /// (e.g. the one created at launch) rather than leaving it orphaned
-    /// behind the new tab, otherwise a fresh one.
+    /// behind the new tab, otherwise a fresh one. A ⌘N-dialog document is
+    /// never reused: its size is explicit, so the file would arrive scaled
+    /// onto that canvas above Layer 1 instead of becoming the document.
     private static func documentForArrival() -> BrushyDocument? {
         if let front = frontBrushyDocument(),
            front.fileURL == nil, !front.isDocumentEdited,
+           !front.store.canvasSizeChosenExplicitly,
            front.store.document.layers.isEmpty || front.store.isPristineBlankDocument {
             return front
         }
