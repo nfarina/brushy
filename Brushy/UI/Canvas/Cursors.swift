@@ -100,4 +100,91 @@ enum Cursors {
         resizeCache[quantized] = cursor
         return cursor
     }
+
+    private static var selectionCache: [SelectionState.CombineMode: NSCursor] = [:]
+
+    /// Marquee / lasso / wand crosshair, badged +, − or × when the gesture
+    /// will add to, subtract from or intersect the selection (Photoshop's cue).
+    static func selection(_ mode: SelectionState.CombineMode) -> NSCursor {
+        if let cached = selectionCache[mode] { return cached }
+        let image = NSImage(size: NSSize(width: 24, height: 24), flipped: false) { _ in
+            let center = CGPoint(x: 9, y: 15)
+            let cross = NSBezierPath()
+            cross.move(to: CGPoint(x: center.x - 8, y: center.y))
+            cross.line(to: CGPoint(x: center.x + 8, y: center.y))
+            cross.move(to: CGPoint(x: center.x, y: center.y - 8))
+            cross.line(to: CGPoint(x: center.x, y: center.y + 8))
+            strokeOutlined(cross, width: 1)
+            drawBadge(mode, at: CGPoint(x: 19, y: 5))
+            return true
+        }
+        // hotSpot is top-left based; the crosshair centre is 9pt down.
+        let cursor = NSCursor(image: image, hotSpot: NSPoint(x: 9, y: 9))
+        selectionCache[mode] = cursor
+        return cursor
+    }
+
+    private static var loadSelectionCache: [SelectionState.CombineMode: NSCursor] = [:]
+
+    /// The arrow plus a marching-ants square, badged like `selection(_:)`:
+    /// shown over a layer thumbnail while ⌘ is held, since the click will load
+    /// that layer's pixels as (or into) the selection.
+    static func loadSelection(_ mode: SelectionState.CombineMode) -> NSCursor {
+        if let cached = loadSelectionCache[mode] { return cached }
+        let arrow = NSCursor.arrow
+        let size = NSSize(width: 36, height: 32)
+        let image = NSImage(size: size, flipped: false) { _ in
+            // Top-left aligned, so the arrow's own hot spot still applies.
+            let arrowSize = arrow.image.size
+            arrow.image.draw(in: CGRect(x: 0, y: size.height - arrowSize.height,
+                                        width: arrowSize.width, height: arrowSize.height))
+            let square = NSBezierPath(rect: CGRect(x: 12.5, y: 2.5, width: 9, height: 9))
+            NSColor.black.setStroke()
+            square.lineWidth = 3
+            square.stroke()
+            NSColor.white.setStroke()
+            square.lineWidth = 1
+            square.setLineDash([2, 2], count: 2, phase: 0)
+            square.stroke()
+            drawBadge(mode, at: CGPoint(x: 31, y: 7))
+            return true
+        }
+        let cursor = NSCursor(image: image, hotSpot: arrow.hotSpot)
+        loadSelectionCache[mode] = cursor
+        return cursor
+    }
+
+    /// White stroke on a black outline, like the other cursors here.
+    private static func strokeOutlined(_ path: NSBezierPath, width: CGFloat) {
+        path.lineCapStyle = .square
+        NSColor.black.setStroke()
+        path.lineWidth = width + 2
+        path.stroke()
+        NSColor.white.setStroke()
+        path.lineWidth = width
+        path.stroke()
+    }
+
+    /// +, − or × centred on `center`; nothing for a plain replace.
+    private static func drawBadge(_ mode: SelectionState.CombineMode, at center: CGPoint) {
+        let arm: CGFloat = 3
+        let glyph = NSBezierPath()
+        func segment(_ dx: CGFloat, _ dy: CGFloat) {
+            glyph.move(to: CGPoint(x: center.x - dx, y: center.y - dy))
+            glyph.line(to: CGPoint(x: center.x + dx, y: center.y + dy))
+        }
+        switch mode {
+        case .replace:
+            return
+        case .add:
+            segment(arm, 0)
+            segment(0, arm)
+        case .subtract:
+            segment(arm, 0)
+        case .intersect:
+            segment(arm, arm)
+            segment(arm, -arm)
+        }
+        strokeOutlined(glyph, width: 2)
+    }
 }

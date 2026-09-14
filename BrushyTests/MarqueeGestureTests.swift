@@ -65,4 +65,39 @@ final class MarqueeGestureTests: XCTestCase {
                        CGRect(x: 0, y: 0, width: 150, height: 120),
                        "added to the existing selection, and not squared once ⇧ was let go")
     }
+
+    func testOptionHeldFromTheClickSubtractsWithoutCentring() throws {
+        let (store, controller) = makeController()
+        store.combineSelection(CGPath(rect: CGRect(x: 0, y: 0, width: 300, height: 200), transform: nil),
+                               mode: .replace)
+        controller.mouseDown(at: CGPoint(x: 100, y: 100), modifiers: [.option], clickCount: 1)
+        controller.mouseDragged(to: CGPoint(x: 140, y: 120), modifiers: [.option])
+        XCTAssertEqual(store.previewSelectionPath?.boundingBox,
+                       CGRect(x: 100, y: 100, width: 40, height: 20),
+                       "⌥ held since the click only chose subtract")
+
+        controller.modifiersChanged([])
+        controller.modifiersChanged([.option])
+        XCTAssertEqual(store.previewSelectionPath?.boundingBox,
+                       CGRect(x: 60, y: 80, width: 80, height: 40),
+                       "released and pressed again mid-drag, it centres")
+
+        controller.mouseUp(at: CGPoint(x: 140, y: 120), modifiers: [.option], clickCount: 1)
+        let path = try XCTUnwrap(store.selection.path)
+        XCTAssertEqual(path.boundingBox, CGRect(x: 0, y: 0, width: 300, height: 200))
+        XCTAssertFalse(path.contains(CGPoint(x: 100, y: 100)), "the centred rectangle was subtracted")
+        XCTAssertTrue(path.contains(CGPoint(x: 150, y: 150)))
+    }
+
+    func testShiftOptionAtMouseDownIntersects() throws {
+        let (store, controller) = makeController()
+        store.combineSelection(CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100), transform: nil),
+                               mode: .replace)
+        controller.mouseDown(at: CGPoint(x: 50, y: 50), modifiers: [.shift, .option], clickCount: 1)
+        controller.mouseDragged(to: CGPoint(x: 150, y: 120), modifiers: []) // keys released
+        controller.mouseUp(at: CGPoint(x: 150, y: 120), modifiers: [], clickCount: 1)
+        XCTAssertEqual(try XCTUnwrap(store.selection.path?.boundingBox),
+                       CGRect(x: 50, y: 50, width: 50, height: 50),
+                       "⇧⌥ at mouse-down keeps only the overlap, even starting inside the selection")
+    }
 }

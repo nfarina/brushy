@@ -2025,13 +2025,18 @@ final class DocumentStore: ObservableObject {
         previewSelectionPath = nil
         let newSelection = selection.combining(path, mode: mode)
         guard newSelection != selection else { return }
-        let name: String
+        commitSelection(Self.actionName(for: mode), newSelection)
+    }
+
+    /// History names for the selection combine modes, shared by the marquee,
+    /// lasso and wand and by ⌘-clicking a layer thumbnail.
+    private static func actionName(for mode: SelectionState.CombineMode) -> String {
         switch mode {
-        case .replace: name = "Select"
-        case .add: name = "Add to Selection"
-        case .subtract: name = "Subtract from Selection"
+        case .replace: return "Select"
+        case .add: return "Add to Selection"
+        case .subtract: return "Subtract from Selection"
+        case .intersect: return "Intersect with Selection"
         }
-        commitSelection(name, newSelection)
     }
 
     /// A selection that arrived as pixels (⌘-clicked layer alpha, Quick Mask):
@@ -2248,7 +2253,10 @@ final class DocumentStore: ObservableObject {
     /// selection"). The layer's alpha becomes the selection's coverage, so a
     /// feathered or antialiased layer comes back exactly as soft as it is; the
     /// traced 50% contour is what the ants draw.
-    func selectPixels(of layerID: UUID) {
+    /// ⌘-click on a layer thumbnail loads its alpha as the selection; with ⇧,
+    /// ⌥ or both it adds, subtracts or intersects instead (Photoshop), keeping
+    /// soft edges on both sides (`SelectionState.combining(_:mode:)`).
+    func selectPixels(of layerID: UUID, mode: SelectionState.CombineMode = .replace) {
         guard !blockedByQuickMask else { return }
         commitPendingSessions()
         guard let layer = document[layerID: layerID], layer.kind.adjustmentSpec == nil,
@@ -2262,11 +2270,14 @@ final class DocumentStore: ObservableObject {
         let texture = MaskTexture(width: pixels.width, height: pixels.height, data: coverage)
         let rect = document.canvasRect.integral
         let loaded = SelectionState.coverage(texture, rect: rect)
-        guard !loaded.isEmpty else {
+        // An empty layer still means something to subtract (nothing) and
+        // intersect (deselect); only loading or adding it is a no-op to explain.
+        guard !loaded.isEmpty || mode == .subtract || mode == .intersect else {
             brushHint = "“\(layer.name)” has no pixels inside the canvas to select"
             return
         }
-        replaceSelection(loaded, actionName: "Select")
+        replaceSelection(selection.combining(loaded, mode: mode),
+                         actionName: Self.actionName(for: mode))
     }
 
     // MARK: - Magic Wand

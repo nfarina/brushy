@@ -101,6 +101,48 @@ final class SelectionCoverageTests: XCTestCase {
         XCTAssertEqual(Double(value), 128, accuracy: 4)
     }
 
+    /// A store holding the half-transparent square layer, with `selection`
+    /// already made (hard-edged), for the ⌘⇧ / ⌘⌥ / ⌘⇧⌥ thumbnail clicks.
+    private func softLayerStore(selecting rect: CGRect) -> (DocumentStore, UUID) {
+        var document = Document(canvasSize: canvas)
+        document.layers = [Layer(name: "Soft", source: halfTransparentSquare(), isPaintable: true)]
+        let store = DocumentStore(document: document)
+        store.selectLayer(document.layers[0].id)
+        store.featherAmount = 0
+        store.combineSelection(CGPath(rect: rect, transform: nil), mode: .replace)
+        return (store, document.layers[0].id)
+    }
+
+    private func selectionCoverage(_ store: DocumentStore, x: Int, y: Int) -> Double {
+        let texture = store.selection.coverageTexture(over: CGRect(origin: .zero, size: canvas))
+        return Double(texture.data[(30 - y - 1) * 40 + x])
+    }
+
+    func testCommandShiftClickAddsTheLayerKeepingItsSoftness() {
+        let (store, layerID) = softLayerStore(selecting: CGRect(x: 0, y: 0, width: 5, height: 5))
+        store.selectPixels(of: layerID, mode: .add)
+        XCTAssertTrue(store.selection.hasAlpha, "the added layer's half alpha is not thresholded")
+        XCTAssertEqual(selectionCoverage(store, x: 2, y: 2), 255, "the marquee stays selected")
+        XCTAssertEqual(selectionCoverage(store, x: 15, y: 15), 128, accuracy: 4)
+        XCTAssertEqual(selectionCoverage(store, x: 35, y: 25), 0)
+    }
+
+    func testCommandOptionClickSubtractsTheLayerByItsCoverage() {
+        let (store, layerID) = softLayerStore(selecting: CGRect(origin: .zero, size: canvas))
+        store.selectPixels(of: layerID, mode: .subtract)
+        XCTAssertEqual(selectionCoverage(store, x: 15, y: 15), 127, accuracy: 4)
+        XCTAssertEqual(selectionCoverage(store, x: 2, y: 2), 255)
+    }
+
+    func testCommandShiftOptionClickIntersectsWithTheLayer() {
+        let (store, layerID) = softLayerStore(selecting: CGRect(x: 0, y: 0, width: 20, height: 30))
+        store.selectPixels(of: layerID, mode: .intersect)
+        XCTAssertEqual(selectionCoverage(store, x: 15, y: 15), 128, accuracy: 4,
+                       "inside both: the layer's coverage")
+        XCTAssertEqual(selectionCoverage(store, x: 25, y: 15), 0, "layer only: outside the selection")
+        XCTAssertEqual(selectionCoverage(store, x: 2, y: 2), 0, "selection only: outside the layer")
+    }
+
     /// A 20×10 square at half alpha, at canvas (10,10).
     private func halfTransparentSquare() -> CGImage {
         let ctx = CGContext(data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0,

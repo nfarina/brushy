@@ -256,6 +256,10 @@ struct LayersPanel: View {
     /// "Smart" in the Photoshop sense: the layer's pixels are not the truth —
     /// a photo's original bytes, a live text/shape spec, an adjustment that
     /// has no pixels at all. Editing one rasterizes it first.
+    /// A constant rather than an inline concatenation: the thumbnail button's
+    /// modifier chain is already near the type checker's time limit.
+    static let thumbnailAccessibilityHint = "Targets the layer's pixels. Command-click selects them; add Shift to add to the selection, Option to subtract, or both to intersect. Option-click clips it to the layer below. Double-click rasterizes a smart layer."
+
     static func isSmart(_ layer: Layer) -> Bool {
         if case .raster = layer.kind { return !layer.isPaintable }
         return true
@@ -312,10 +316,14 @@ struct LayersPanel: View {
             // all ended up unreachable without a mouse. `.plain` keeps the
             // appearance identical to the gesture version.
             Button {
-                // ⌘-click loads the layer's pixels as a selection (Photoshop)
-                // and leaves the current target alone.
-                if NSEvent.modifierFlags.contains(.command) {
-                    store.selectPixels(of: layer.id)
+                // ⌘-click loads the layer's pixels as a selection and leaves
+                // the current target alone; ⌘⇧ adds, ⌘⌥ subtracts and ⌘⇧⌥
+                // intersects (Photoshop).
+                let flags = NSEvent.modifierFlags
+                if flags.contains(.command) {
+                    let mode = SelectionState.CombineMode(shift: flags.contains(.shift),
+                                                          option: flags.contains(.option))
+                    store.selectPixels(of: layer.id, mode: mode)
                     return
                 }
                 store.selectLayer(layer.id)
@@ -360,12 +368,11 @@ struct LayersPanel: View {
                     store.showToast("Rasterized “\(layer.name)”")
                 }
             })
+            .modifier(LoadSelectionCursor())
             .accessibilityLabel("Layer thumbnail, \(layer.name)")
             .accessibilityValue(isSelected && !store.maskTargeted ? "Targeted" : "Not targeted")
-            .accessibilityHint("Targets the layer's pixels. Command-click selects them. "
-                               + "Option-click clips it to the layer below. "
-                               + "Double-click rasterizes a smart layer.")
-            .help("Click to target layer · ⌥-click to clip to the layer below")
+            .accessibilityHint(Self.thumbnailAccessibilityHint)
+            .help("Click to target layer · ⌘-click to select its pixels (⇧ add, ⌥ subtract, ⇧⌥ intersect) · ⌥-click to clip to the layer below")
 
             if let mask = layer.mask {
                 Button {
@@ -589,5 +596,46 @@ struct LayersPanel: View {
         .font(.system(size: 14))
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// Over a layer thumbnail, holding ⌘ (with ⇧/⌥) shows the selection cursor for
+/// the click it would make. Modifier presses without pointer movement arrive
+/// through a local flagsChanged monitor, installed only while hovering.
+private struct LoadSelectionCursor: ViewModifier {
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    if monitor == nil {
+                        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                            Self.showCursor(for: event.modifierFlags)
+                            return event
+                        }
+                    }
+                    Self.showCursor(for: NSEvent.modifierFlags)
+                case .ended:
+                    removeMonitor()
+                    NSCursor.arrow.set()
+                }
+            }
+            .onDisappear(perform: removeMonitor)
+    }
+
+    private func removeMonitor() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    private static func showCursor(for flags: NSEvent.ModifierFlags) {
+        if flags.contains(.command) {
+            Cursors.loadSelection(.init(shift: flags.contains(.shift),
+                                        option: flags.contains(.option))).set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 }

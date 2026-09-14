@@ -16,7 +16,16 @@ final class CanvasController {
         didSet { refreshCursor() }
     }
 
-    private var currentModifiers: NSEvent.ModifierFlags = []
+    private var currentModifiers: NSEvent.ModifierFlags = [] {
+        // A latched key stops being latched once it is let go.
+        didSet { latchedModifiers.formIntersection(currentModifiers) }
+    }
+    /// ⇧/⌥ already held when a marquee drag began. They chose add/subtract,
+    /// so they don't also square or centre it until released and pressed
+    /// again (Photoshop).
+    private var latchedModifiers: NSEvent.ModifierFlags = []
+    private var marqueeSquare: Bool { shiftDown && !latchedModifiers.contains(.shift) }
+    private var marqueeFromCenter: Bool { optionDown && !latchedModifiers.contains(.option) }
     private var lastViewPoint: CGPoint = .zero
     private var currentViewPoint: CGPoint = .zero
     private var hoverViewPoint: CGPoint?
@@ -184,14 +193,15 @@ final class CanvasController {
             }
         case .marquee, .lasso:
             // Inside the selection with no modifier held, the press grabs the
-            // outline (Photoshop). ⇧/⌥ mean add/subtract, so they start a new
-            // marquee even over the selection, as they do there.
+            // outline (Photoshop). ⇧/⌥ mean add/subtract (both: intersect), so
+            // they start a new marquee even over the selection, as they do there.
             if !shiftDown, !optionDown, store.selectionContains(canvasPoint) {
                 drag = .selectionOutline(startCanvas: canvasPoint)
                 refreshCursor()
                 return
             }
             if store.activeTool == .marquee {
+                latchedModifiers = currentModifiers.intersection([.shift, .option])
                 drag = .marquee(startCanvas: canvasPoint, mode: combineMode())
             } else {
                 drag = .lasso(points: [canvasPoint], mode: combineMode())
@@ -382,7 +392,7 @@ final class CanvasController {
             let endCanvas = viewport.fromView(viewPoint)
             let screenDistance = (viewPoint - viewport.toView(startCanvas)).length
             let rect = SelectionState.marqueeRect(from: startCanvas, to: endCanvas,
-                                                  square: shiftDown, fromCenter: optionDown)
+                                                  square: marqueeSquare, fromCenter: marqueeFromCenter)
             if screenDistance < 2 {
                 store.deselect()
             } else if rect.width >= 1, rect.height >= 1 {
@@ -708,11 +718,13 @@ final class CanvasController {
             store.updateCropSession(session)
 
         case .marquee(let startCanvas, _):
-            // ⇧/⌥ at mouse-down chose add/subtract (`combineMode`); held
-            // during the drag they also mean square / from centre, read live
-            // so pressing or releasing mid-drag takes effect, as in Photoshop.
+            // ⇧/⌥ at mouse-down chose add/subtract (`combineMode`). Pressed
+            // during the drag they mean square / from centre, read live so
+            // pressing or releasing mid-drag takes effect; a key held since
+            // mouse-down counts only once released and pressed again
+            // (`latchedModifiers`), as in Photoshop.
             let rect = SelectionState.marqueeRect(from: startCanvas, to: canvasPoint,
-                                                  square: shiftDown, fromCenter: optionDown)
+                                                  square: marqueeSquare, fromCenter: marqueeFromCenter)
             store.previewSelectionPath = CGPath(rect: rect, transform: nil)
 
         case .selectionOutline(let startCanvas):
@@ -857,11 +869,15 @@ final class CanvasController {
             }
             return .arrow
         case .marquee, .lasso:
+            // Mid-drag the badge keeps the mode the drag started with: ⇧/⌥
+            // pressed now square or centre the marquee instead.
+            if case .marquee(_, let mode) = drag { return Cursors.selection(mode) }
+            if case .lasso(_, let mode) = drag { return Cursors.selection(mode) }
             // Over the selection, the press would move the outline — say so.
             if !shiftDown, !optionDown,
                store.selectionContains(viewport.fromView(viewPoint)) { return .arrow }
-            return .crosshair
-        case .wand: return .crosshair
+            return Cursors.selection(combineMode())
+        case .wand: return Cursors.selection(combineMode())
         case .crop:
             if let session = store.cropSession, let handle = hitCropHandle(viewPoint, session) {
                 let direction = CGPoint(x: handle.unitPoint.x - 0.5, y: handle.unitPoint.y - 0.5)
@@ -890,9 +906,7 @@ final class CanvasController {
     // MARK: - Hit testing
 
     private func combineMode() -> SelectionState.CombineMode {
-        if shiftDown { return .add }
-        if optionDown { return .subtract }
-        return .replace
+        SelectionState.CombineMode(shift: shiftDown, option: optionDown)
     }
 
     private func snapTargets(excluding layerID: UUID) -> SmartGuides.Targets {

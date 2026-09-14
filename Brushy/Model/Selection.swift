@@ -54,6 +54,17 @@ struct SelectionState: Equatable {
         case replace
         case add
         case subtract
+        case intersect
+
+        /// Photoshop's selection modifiers: ⇧ adds, ⌥ subtracts, both intersect.
+        init(shift: Bool, option: Bool) {
+            switch (shift, option) {
+            case (true, true): self = .intersect
+            case (true, false): self = .add
+            case (false, true): self = .subtract
+            case (false, false): self = .replace
+            }
+        }
     }
 
     /// Geometry in, geometry out: the result is path-only, so any coverage the
@@ -68,9 +79,56 @@ struct SelectionState: Equatable {
         case .subtract:
             guard let path else { return .empty }
             result = path.subtracting(newPath)
+        case .intersect:
+            guard let path else { return .empty }
+            result = path.intersection(newPath)
         }
         guard let result, !result.isEmpty, !result.boundingBoxOfPath.isEmpty else { return .empty }
         return SelectionState(path: result.normalized())
+    }
+
+    /// Combines another whole selection — typically a ⌘⇧/⌘⌥-clicked layer's
+    /// alpha — into this one. Two path-only selections use the exact booleans
+    /// above. If either side has coverage, both are rasterised over the union
+    /// of their bounds and combined per pixel the way Photoshop's channel
+    /// arithmetic does (add = max, subtract = a·(1−b), intersect = a·b), so
+    /// soft edges survive instead of being dropped.
+    func combining(_ other: SelectionState, mode: CombineMode) -> SelectionState {
+        if mode == .replace { return other }
+        if isEmpty { return mode == .add ? other : .empty }
+        if other.isEmpty { return mode == .intersect ? .empty : self }
+        if !hasAlpha, !other.hasAlpha, let otherPath = other.path {
+            return combining(otherPath, mode: mode)
+        }
+        let rect = coverageBounds.union(other.coverageBounds).integral
+        var result = coverageTexture(over: rect)
+        let operand = other.coverageTexture(over: rect)
+        result.mutate { data in
+            data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+                operand.data.withUnsafeBytes { (source: UnsafeRawBufferPointer) in
+                    guard let a = raw.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                          let b = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                        return
+                    }
+                    for index in 0..<min(raw.count, source.count) {
+                        let x = Int(a[index]), y = Int(b[index])
+                        switch mode {
+                        case .add: a[index] = UInt8(max(x, y))
+                        case .subtract: a[index] = UInt8((x * (255 - y) + 127) / 255)
+                        case .intersect: a[index] = UInt8((x * y + 127) / 255)
+                        case .replace: a[index] = UInt8(y)
+                        }
+                    }
+                }
+            }
+        }
+        return .coverage(result, rect: rect)
+    }
+
+    /// Everything this selection covers: the coverage buffer's rect when there
+    /// is one (a soft edge reaches past the 50% contour), else the path's box.
+    private var coverageBounds: CGRect {
+        alpha?.rect ?? path?.boundingBoxOfPath ?? .null
     }
 
     /// Select ▸ Inverse. With coverage this inverts the channel exactly
