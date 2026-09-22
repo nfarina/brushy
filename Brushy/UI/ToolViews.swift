@@ -210,6 +210,18 @@ struct ToolOptionsBar: View {
                 }
             }
             Spacer()
+            if [.marquee, .lasso, .wand].contains(store.activeTool),
+               let path = store.previewSelectionPath
+                   ?? store.selectionTransformSession?.currentPath
+                   ?? store.liveSelectionPath {
+                let size = SelectionState.measuredSize(of: path)
+                Label("\(size.width) × \(size.height) px", systemImage: "rectangle.dashed")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .help("Size of the selection's bounding box")
+                Divider().frame(height: 14)
+            }
             Text("\(store.document.canvasSize.width.saturatingInt) × \(store.document.canvasSize.height.saturatingInt) px   \((store.viewport.zoom * 100).rounded().saturatingInt)%")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -317,6 +329,8 @@ struct ToolOptionsBar: View {
                  : "⇧ adds · ⌥ subtracts · ⌘D deselects")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 

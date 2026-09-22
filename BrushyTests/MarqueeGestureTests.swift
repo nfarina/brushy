@@ -100,4 +100,21 @@ final class MarqueeGestureTests: XCTestCase {
                        CGRect(x: 50, y: 50, width: 50, height: 50),
                        "⇧⌥ at mouse-down keeps only the overlap, even starting inside the selection")
     }
+
+    func testMeasuredSizeReportsTheMarqueeInWholePixels() throws {
+        let (store, controller) = makeController()
+        controller.mouseDown(at: CGPoint(x: 20.4, y: 30.2), modifiers: [], clickCount: 1)
+        controller.mouseDragged(to: CGPoint(x: 140.6, y: 75.3), modifiers: [])
+        let preview = try XCTUnwrap(store.previewSelectionPath)
+        XCTAssertTrue(SelectionState.measuredSize(of: preview) == (121, 45))
+        controller.mouseUp(at: CGPoint(x: 140.6, y: 75.3), modifiers: [], clickCount: 1)
+        XCTAssertTrue(SelectionState.measuredSize(of: try XCTUnwrap(store.selection.path)) == (121, 45))
+
+        // A lasso outline rounds outward to the pixels it touches.
+        let lasso = CGMutablePath()
+        lasso.addLines(between: [CGPoint(x: 10.5, y: 10.5), CGPoint(x: 20.2, y: 10.5),
+                                 CGPoint(x: 15, y: 30.7)])
+        lasso.closeSubpath()
+        XCTAssertTrue(SelectionState.measuredSize(of: lasso) == (11, 21))
+    }
 }

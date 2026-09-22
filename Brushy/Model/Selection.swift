@@ -313,6 +313,17 @@ extension SelectionState {
                       width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
+    /// Whole-pixel width × height of an outline's bounding box — the size the
+    /// marquee callout and the options bar report, for measuring (Photoshop's
+    /// W/H readout). A marquee is already on the grid; a lasso or wand outline
+    /// rounds outward to the pixels it touches, as Image > Crop would.
+    static func measuredSize(of path: CGPath) -> (width: Int, height: Int) {
+        let box = path.boundingBoxOfPath
+        guard !box.isNull, !box.isInfinite else { return (0, 0) }
+        let rect = box.integral
+        return (rect.width.saturatingInt, rect.height.saturatingInt)
+    }
+
     /// Image > Crop's frame: the selection's bounding box, expanded outward to
     /// whole pixels and clipped to the canvas. A lasso crops to its bounds, as
     /// in Photoshop. nil when there is no selection or it misses the canvas.

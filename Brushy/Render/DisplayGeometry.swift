@@ -50,4 +50,18 @@ enum DisplayGeometry {
                 lines(offset: aligned.ty, scale: aligned.d, count: canvasSize.height,
                       lower: visible.minY, upper: visible.maxY))
     }
+
+    /// Frame (view space, y-up) for a readout of `size` floating beside the
+    /// pointer — below and right of it as in Photoshop, flipped to the other
+    /// side of the pointer when that would leave `bounds`, then clamped in.
+    static func readoutFrame(size: CGSize, beside pointer: CGPoint, in bounds: CGRect,
+                             offset: CGFloat = 16, margin: CGFloat = 4) -> CGRect {
+        var x = pointer.x + offset
+        if x + size.width > bounds.maxX - margin { x = pointer.x - offset - size.width }
+        var y = pointer.y - offset - size.height
+        if y < bounds.minY + margin { y = pointer.y + offset }
+        x = min(max(x, bounds.minX + margin), bounds.maxX - margin - size.width)
+        y = min(max(y, bounds.minY + margin), bounds.maxY - margin - size.height)
+        return CGRect(origin: CGPoint(x: x, y: y), size: size)
+    }
 }

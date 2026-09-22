@@ -36,4 +36,19 @@ final class DisplayGeometryTests: XCTestCase {
         XCTAssertEqual(clipped.columns, [15])
         XCTAssertEqual(clipped.rows, [10])
     }
+
+    func testReadoutSitsBelowRightOfThePointerAndFlipsAtTheViewEdges() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let size = CGSize(width: 80, height: 34)
+        XCTAssertEqual(DisplayGeometry.readoutFrame(size: size, beside: CGPoint(x: 100, y: 200), in: bounds),
+                       CGRect(x: 116, y: 150, width: 80, height: 34))
+        // Near the right edge it moves left of the pointer; near the bottom
+        // (y-up) it moves above.
+        XCTAssertEqual(DisplayGeometry.readoutFrame(size: size, beside: CGPoint(x: 380, y: 20), in: bounds),
+                       CGRect(x: 284, y: 36, width: 80, height: 34))
+        // A pointer outside the view (dragging past the edge) still leaves
+        // the readout fully inside it.
+        let outside = DisplayGeometry.readoutFrame(size: size, beside: CGPoint(x: 500, y: -50), in: bounds)
+        XCTAssertTrue(bounds.contains(outside))
+    }
 }

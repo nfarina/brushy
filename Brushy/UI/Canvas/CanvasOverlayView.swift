@@ -64,6 +64,9 @@ final class CanvasOverlayView: NSView {
         }
         if let preview = store.previewSelectionPath {
             drawAnts(preview, viewport: viewport)
+            if store.activeTool == .marquee {
+                drawMarqueeReadout(for: preview, viewport: viewport)
+            }
         }
         if store.activeTool == .crop, let session = store.cropSession {
             drawCrop(session, viewport: viewport)
@@ -112,6 +115,33 @@ final class CanvasOverlayView: NSView {
         NSColor.white.withAlphaComponent(0.9).setStroke()
         path.lineWidth = 0.75
         path.stroke()
+    }
+
+    /// Photoshop's W/H callout beside the pointer while a marquee is dragged
+    /// out, in whole canvas pixels (§5). Follows the live pointer; without one
+    /// (headless snapshots) it sits off the rectangle's lower-right corner.
+    private func drawMarqueeReadout(for canvasPath: CGPath, viewport: Viewport) {
+        let size = SelectionState.measuredSize(of: canvasPath)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize,
+                                                     weight: .medium)
+        let text = NSAttributedString(string: "W: \(size.width) px\nH: \(size.height) px",
+                                      attributes: [.font: font, .foregroundColor: NSColor.white])
+        let padding = CGSize(width: 7, height: 4)
+        let textSize = text.size()
+        let boxSize = CGSize(width: ceil(textSize.width) + padding.width * 2,
+                             height: ceil(textSize.height) + padding.height * 2)
+        let pointer: CGPoint
+        if let window, window.isKeyWindow {
+            pointer = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        } else {
+            let box = canvasPath.boundingBoxOfPath
+            pointer = viewport.toView(CGPoint(x: box.maxX, y: box.minY))
+        }
+        let frame = DisplayGeometry.readoutFrame(size: boxSize, beside: pointer, in: bounds)
+        let background = NSBezierPath(roundedRect: frame, xRadius: 5, yRadius: 5)
+        NSColor.black.withAlphaComponent(0.72).setFill()
+        background.fill()
+        text.draw(at: CGPoint(x: frame.minX + padding.width, y: frame.minY + padding.height))
     }
 
     /// Rubber-band outline while dragging out a new shape.
