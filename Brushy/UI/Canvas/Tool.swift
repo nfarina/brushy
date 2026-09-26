@@ -67,6 +67,19 @@ enum Tool: String, CaseIterable, Identifiable {
     var isBrushFamily: Bool { self == .brush || self == .eraser }
 }
 
+/// Photoshop's opacity digit keys: 1…9 are 10…90% and 0 is 100%; a second
+/// digit typed quickly after the first makes an exact value ("4", "5" → 45%,
+/// "0", "0" → 0%).
+enum OpacityKeys {
+    /// How soon the second digit must follow the first to pair with it.
+    static let pairingInterval: TimeInterval = 0.6
+
+    static func percent(digit: Int, following previous: Int?) -> Int {
+        if let previous { return previous * 10 + digit }
+        return digit == 0 ? 100 : digit * 10
+    }
+}
+
 /// The 8 transform/crop handles. `unitPoint` is in the unit square of the
 /// box being transformed (y-up).
 enum TransformHandle: CaseIterable {

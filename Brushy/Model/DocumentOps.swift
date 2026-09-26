@@ -73,6 +73,24 @@ extension Document {
         return doc
     }
 
+    /// Sets every listed layer's opacity, clamped to 0…1 — one op for a
+    /// multi-selection, as Photoshop's digit keys apply to all selected layers.
+    func settingOpacity(_ opacity: Float, ofLayers ids: Set<UUID>) -> Document {
+        var doc = self
+        let value = min(max(opacity, 0), 1)
+        for index in doc.layers.indices where ids.contains(doc.layers[index].id) {
+            doc.layers[index].opacity = value
+        }
+        return doc
+    }
+
+    func settingOpacity(_ opacity: Float, ofGroup id: UUID) -> Document {
+        guard let index = groupIndex(of: id) else { return self }
+        var doc = self
+        doc.groups[index].opacity = min(max(opacity, 0), 1)
+        return doc
+    }
+
     func removingLayer(id: UUID) -> Document {
         var doc = self
         doc.layers.removeAll { $0.id == id }

@@ -793,6 +793,23 @@ final class CanvasController {
         }
     }
 
+    /// The digit that may pair with the next one, and when it was typed.
+    private var pendingOpacityDigit: (digit: Int, time: TimeInterval)?
+
+    /// A digit key (`OpacityKeys`): brush opacity while painting, as in
+    /// Photoshop; the selected layers' or group's opacity otherwise.
+    func opacityDigit(_ digit: Int, at time: TimeInterval) {
+        let previous = pendingOpacityDigit
+            .flatMap { time - $0.time <= OpacityKeys.pairingInterval ? $0.digit : nil }
+        let percent = OpacityKeys.percent(digit: digit, following: previous)
+        pendingOpacityDigit = previous == nil ? (digit, time) : nil
+        if store.activeTool.isBrushFamily {
+            store.brushOpacity = Double(max(percent, 1))
+        } else {
+            store.setOpacityFromKeys(percent: percent, amendingPrevious: previous != nil)
+        }
+    }
+
     func nudge(dx: CGFloat, dy: CGFloat, big: Bool) {
         let factor: CGFloat = big ? 10 : 1
         store.nudgeSelectedLayer(dx: dx * factor, dy: dy * factor)

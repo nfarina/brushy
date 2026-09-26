@@ -1021,6 +1021,46 @@ final class DocumentStore: ObservableObject {
         commit("Rename Layer", document: document.replacingLayer(layer))
     }
 
+    /// History index of the entry the last opacity digit key made — see
+    /// `setOpacityFromKeys(percent:amendingPrevious:)`.
+    private var opacityKeyEntry: Int?
+
+    /// Photoshop's digit-key opacity for the selected group, or else every
+    /// selected layer. `amendingPrevious` is the second key of a two-digit
+    /// entry ("4", "5" → 45%): it rewrites the entry the first key made
+    /// rather than pushing another, so the pair is one undo step (§6).
+    func setOpacityFromKeys(percent: Int, amendingPrevious: Bool) {
+        commitPendingSessions()
+        let value = Float(min(max(percent, 0), 100)) / 100
+        let newDocument: Document
+        let actionName: String
+        if let groupID = selectedGroupID {
+            newDocument = document.settingOpacity(value, ofGroup: groupID)
+            actionName = "Change Group Opacity"
+        } else if !selectedLayerIDs.isEmpty {
+            newDocument = document.settingOpacity(value, ofLayers: selectedLayerIDs)
+            actionName = "Change Opacity"
+        } else {
+            return
+        }
+        // Amend only while that entry is still the newest state and nothing
+        // has changed the document since. Opacity leaves every pixel storage
+        // alone, but the cost is re-counted so the budget stays exact.
+        if amendingPrevious, let entry = opacityKeyEntry, entry == historyIndex,
+           historyIndex == history.count - 1, history[historyIndex].document == document {
+            var snapshot = history[historyIndex]
+            snapshot.document = newDocument
+            releaseStorage(historyCosts.removeLast())
+            history[historyIndex] = snapshot
+            retainStorage(of: snapshot)
+            apply(snapshot)
+            return
+        }
+        let indexBefore = historyIndex
+        commit(actionName, document: newDocument)
+        opacityKeyEntry = historyIndex != indexBefore ? historyIndex : nil
+    }
+
     func endOpacityEdit() {
         commit("Change Opacity", document: document)
     }

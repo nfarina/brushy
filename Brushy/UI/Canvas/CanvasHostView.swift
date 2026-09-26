@@ -329,6 +329,13 @@ final class CanvasHostView: NSView {
         default:
             break
         }
+        // Digits set opacity (Photoshop). ⌥/⌃ digits are left alone.
+        if event.modifierFlags.isDisjoint(with: [.option, .control]),
+           let characters = event.charactersIgnoringModifiers, characters.count == 1,
+           let digit = Int(characters) {
+            controller.opacityDigit(digit, at: event.timestamp)
+            return
+        }
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "v": store.activeTool = .move
         case "m": store.activeTool = .marquee

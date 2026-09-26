@@ -173,7 +173,8 @@ struct LayersPanel: View {
                 }
             }
             .disabled(layer == nil && group == nil)
-            .help(group != nil ? "Group opacity" : "Opacity")
+            .help((group != nil ? "Group opacity" : "Opacity")
+                   + " — or type on the canvas: 5 is 50%, 0 is 100%, 4 then 5 is 45%")
             Text("\(Int(opacity.wrappedValue))%")
                 .font(.callout.monospacedDigit())
                 .frame(width: 42, alignment: .trailing)
