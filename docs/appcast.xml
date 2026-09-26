@@ -6,6 +6,21 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.5</title>
+            <pubDate>Sat, 26 Sep 2026 14:11:51 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.5</sparkle:fullReleaseNotesLink>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Number keys set the selected layer's opacity, as in Photoshop: 1–9 for 10–90%, 0 for 100%. Type two digits quickly for an exact value (4 then 5 gives 45%, 0 then 0 gives 0%). With a group selected they set the group's opacity, and with the brush or eraser they set the brush opacity.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.5/Brushy-macos.zip" length="5756386" type="application/octet-stream" sparkle:edSignature="a9pGeVfv1Z5+vbQPSy5TbzLXAwbHhGhsoJRrc4x7lS3xQ9ecMy7/XWvueWOctig66ggJe3ZqLassKKz1A1KwCg=="/>
+        </item>
+        <item>
             <title>0.2.4</title>
             <pubDate>Tue, 22 Sep 2026 12:54:57 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -39,22 +54,6 @@
 - Marquee: a ⇧ or ⌥ you're already holding when you click only picks add or subtract. Release and press it again mid-drag to square or centre the rectangle, as in Photoshop.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.3/Brushy-macos.zip" length="5749589" type="application/octet-stream" sparkle:edSignature="K3dBCAFjveparu9ulgCzKBQ3PGquPeDHTngVhmrP72ijyA1aGa7vimzbKaeqzDcaIilFG5CKjYDeGvH8Atv+CQ=="/>
-        </item>
-        <item>
-            <title>0.2.2</title>
-            <pubDate>Mon, 14 Sep 2026 13:44:10 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.2</sparkle:fullReleaseNotesLink>
-            <sparkle:version>4</sparkle:version>
-            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Brushy now appears in Finder's Open With menu for PNG, JPEG, GIF, TIFF, HEIC, WebP, AVIF, BMP and JPEG XL images, and accepts images dropped on its Dock icon. Each opens as a new document with the image as its only layer.
-- Image Size: typing into the width or height field no longer changes the number as you type.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.2/Brushy-macos.zip" length="5736207" type="application/octet-stream" sparkle:edSignature="Myhi/AL3FA5GJvuVT/yE5iEhTtXnpkcghnpjmxKJZsPO+crYNd3miz45YOEgnIIev/vfF+Pjg3I5XxEfhyu/AQ=="/>
         </item>
     </channel>
 </rss>
