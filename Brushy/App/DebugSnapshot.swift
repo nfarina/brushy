@@ -361,15 +361,21 @@ enum DebugSnapshot {
                                                    width: r.width * 0.3, height: r.height * 0.3),
                                  transform: nil)
             store.combineSelection(ellipse, mode: .add)
-        case "marqueedrag":
+        case "marqueedrag", "ellipsemarquee":
             // A marquee mid-drag: the W/H callout beside it, and the same
-            // size in the options bar.
+            // size in the options bar. `ellipsemarquee` draws the ellipse.
             store.activeTool = .marquee
+            if ProcessInfo.processInfo.environment["BRUSHY_SNAPSHOT_STATE"] == "ellipsemarquee" {
+                store.marqueeShape = .ellipse
+            }
             let r = store.document.canvasRect
-            store.previewSelectionPath = CGPath(
-                rect: SelectionState.marqueeRect(from: CGPoint(x: r.width * 0.2, y: r.height * 0.3),
-                                                 to: CGPoint(x: r.width * 0.55, y: r.height * 0.65)),
-                transform: nil)
+            store.previewSelectionPath = SelectionState.marqueePath(
+                in: SelectionState.marqueeRect(from: CGPoint(x: r.width * 0.2, y: r.height * 0.3),
+                                               to: CGPoint(x: r.width * 0.55, y: r.height * 0.65)),
+                shape: store.marqueeShape)
+        case "tooltip":
+            store.activeTool = .marquee
+            store.hoveredTool = .marquee
         case "guides":
             // rulers + grid + a few guides, move tool active.
             store.rulersVisible = true

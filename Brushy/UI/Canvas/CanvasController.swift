@@ -70,6 +70,10 @@ final class CanvasController {
     }
 
     private var drag: Drag?
+    /// Polygonal Lasso vertices placed so far (canvas space) and the combine
+    /// mode its first click chose. It spans many clicks, unlike `drag`; read
+    /// it through `livePolygon`.
+    private var polygon: (vertices: [CGPoint], mode: SelectionState.CombineMode)?
     /// True when the current drag is what lifted the floating selection, so
     /// mouse-up can tell a fruitless first press (unwind it) from a click on
     /// pixels that were already floating (leave them be).
@@ -192,6 +196,10 @@ final class CanvasController {
                                   duplicated: false, shiftAtDown: shiftDown, startView: viewPoint)
             }
         case .marquee, .lasso:
+            if livePolygon != nil {
+                polygonClick(at: viewPoint, clickCount: clickCount)
+                return
+            }
             // Inside the selection with no modifier held, the press grabs the
             // outline (Photoshop). ⇧/⌥ mean add/subtract (both: intersect), so
             // they start a new marquee even over the selection, as they do there.
@@ -203,6 +211,10 @@ final class CanvasController {
             if store.activeTool == .marquee {
                 latchedModifiers = currentModifiers.intersection([.shift, .option])
                 drag = .marquee(startCanvas: canvasPoint, mode: combineMode())
+            } else if store.lassoStyle == .polygonal {
+                polygon = ([canvasPoint], combineMode())
+                updatePolygonPreview(pointer: viewPoint)
+                refreshCursor()
             } else {
                 drag = .lasso(points: [canvasPoint], mode: combineMode())
             }
@@ -310,6 +322,11 @@ final class CanvasController {
             store.viewport.pan(by: delta)
             return
         }
+        // A press while placing a polygon is a click; the band follows it.
+        if drag == nil, livePolygon != nil {
+            updatePolygonPreview(pointer: viewPoint)
+            return
+        }
         applyDrag(at: viewPoint)
     }
 
@@ -319,6 +336,9 @@ final class CanvasController {
         currentModifiers = modifiers
         if drag != nil, !isPanDrag, !spaceDown || isMarqueeDrag {
             applyDrag(at: currentViewPoint)
+        }
+        if drag == nil, livePolygon != nil {
+            updatePolygonPreview(pointer: hoverViewPoint ?? currentViewPoint) // ⇧ = 45°
         }
         syncBrushRingVisibility()
         refreshCursor()
@@ -396,7 +416,8 @@ final class CanvasController {
             if screenDistance < 2 {
                 store.deselect()
             } else if rect.width >= 1, rect.height >= 1 {
-                store.combineSelection(CGPath(rect: rect, transform: nil), mode: mode)
+                store.combineSelection(SelectionState.marqueePath(in: rect, shape: store.marqueeShape),
+                                       mode: mode)
             }
         case .selectionOutline(let startCanvas):
             // ⇧ constrains the outline drag to an axis, like every other move.
@@ -725,7 +746,7 @@ final class CanvasController {
             // (`latchedModifiers`), as in Photoshop.
             let rect = SelectionState.marqueeRect(from: startCanvas, to: canvasPoint,
                                                   square: marqueeSquare, fromCenter: marqueeFromCenter)
-            store.previewSelectionPath = CGPath(rect: rect, transform: nil)
+            store.previewSelectionPath = SelectionState.marqueePath(in: rect, shape: store.marqueeShape)
 
         case .selectionOutline(let startCanvas):
             var delta = canvasPoint - startCanvas
@@ -772,7 +793,9 @@ final class CanvasController {
     // MARK: - Keys
 
     func handleReturn() {
-        if store.transformSession != nil {
+        if livePolygon != nil {
+            closePolygon()
+        } else if store.transformSession != nil {
             store.commitTransformSession()
         } else if store.selectionTransformSession != nil {
             store.commitSelectionTransformSession()
@@ -782,7 +805,9 @@ final class CanvasController {
     }
 
     func handleEscape() {
-        if store.transformSession != nil {
+        if livePolygon != nil {
+            cancelPolygon()
+        } else if store.transformSession != nil {
             store.cancelTransformSession()
         } else if store.selectionTransformSession != nil {
             store.cancelSelectionTransformSession()
@@ -791,6 +816,78 @@ final class CanvasController {
         } else if store.activeTool == .crop {
             store.resetCropSession()
         }
+    }
+
+    // MARK: - Polygonal Lasso
+
+    /// The polygon being placed, if it is still live. It lives exactly as
+    /// long as its preview: whatever in the store clears
+    /// `previewSelectionPath` — a tool or lasso-style change, Deselect,
+    /// another selection command — ends the polygon too, with no bookkeeping
+    /// of its own.
+    private var livePolygon: (vertices: [CGPoint], mode: SelectionState.CombineMode)? {
+        guard let polygon, store.activeTool == .lasso, store.lassoStyle == .polygonal,
+              store.previewSelectionPath != nil else { return nil }
+        return polygon
+    }
+
+    private func polygonClick(at viewPoint: CGPoint, clickCount: Int) {
+        guard var current = livePolygon, let first = current.vertices.first else { return }
+        // The double-click's first click already placed its vertex.
+        if clickCount >= 2 || PolygonLasso.closes(at: viewPoint, firstVertex: viewport.toView(first),
+                                                  vertexCount: current.vertices.count) {
+            closePolygon()
+            return
+        }
+        current.vertices.append(nextPolygonVertex(at: viewPoint, after: current.vertices))
+        polygon = current
+        updatePolygonPreview(pointer: viewPoint)
+    }
+
+    private func nextPolygonVertex(at viewPoint: CGPoint, after vertices: [CGPoint]) -> CGPoint {
+        let point = viewport.fromView(viewPoint)
+        guard let last = vertices.last else { return point }
+        return PolygonLasso.nextVertex(after: last, toward: point, constrained: shiftDown)
+    }
+
+    private func updatePolygonPreview(pointer viewPoint: CGPoint?) {
+        guard let polygon else { return }
+        store.previewSelectionPath = PolygonLasso.previewPath(
+            vertices: polygon.vertices,
+            pointer: viewPoint.map { nextPolygonVertex(at: $0, after: polygon.vertices) })
+    }
+
+    /// Return, a double-click or a click on the first vertex. Fewer than
+    /// three vertices select nothing and leave the selection alone.
+    private func closePolygon() {
+        guard let current = livePolygon else { return }
+        polygon = nil
+        store.previewSelectionPath = nil
+        if let path = PolygonLasso.closedPath(vertices: current.vertices) {
+            store.combineSelection(path, mode: current.mode)
+        }
+        refreshCursor()
+    }
+
+    private func cancelPolygon() {
+        polygon = nil
+        store.previewSelectionPath = nil
+        refreshCursor()
+    }
+
+    /// ⌫ while placing a polygon takes back the last vertex (the first one
+    /// cancels). Returns false when there is no polygon, so the key keeps
+    /// its usual meaning.
+    func removeLastPolygonVertex() -> Bool {
+        guard var current = livePolygon else { return false }
+        current.vertices.removeLast()
+        if current.vertices.isEmpty {
+            cancelPolygon()
+        } else {
+            polygon = current
+            updatePolygonPreview(pointer: hoverViewPoint)
+        }
+        return true
     }
 
     /// The digit that may pair with the next one, and when it was typed.
@@ -819,6 +916,7 @@ final class CanvasController {
 
     func hover(at viewPoint: CGPoint) {
         hoverViewPoint = viewPoint
+        if livePolygon != nil { updatePolygonPreview(pointer: viewPoint) }
         if store.activeTool.isBrushFamily && !optionDown {
             store.brushCursorPoint = viewport.fromView(viewPoint)
         } else if store.brushCursorPoint != nil {
@@ -890,6 +988,7 @@ final class CanvasController {
             // pressed now square or centre the marquee instead.
             if case .marquee(_, let mode) = drag { return Cursors.selection(mode) }
             if case .lasso(_, let mode) = drag { return Cursors.selection(mode) }
+            if let polygon = livePolygon { return Cursors.selection(polygon.mode) }
             // Over the selection, the press would move the outline — say so.
             if !shiftDown, !optionDown,
                store.selectionContains(viewport.fromView(viewPoint)) { return .arrow }

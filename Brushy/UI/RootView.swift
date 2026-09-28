@@ -41,6 +41,12 @@ struct RootView: View {
                         }
                     }
                     .animation(.easeInOut(duration: 0.18), value: store.toast)
+                    .overlay(alignment: .topLeading) {
+                        if let tool = store.hoveredTool, !store.panelsHidden {
+                            ToolTipLabel(store: store, tool: tool)
+                                .offset(x: 6, y: ToolStrip.buttonTop(of: tool))
+                        }
+                    }
                 if !store.panelsHidden {
                     Divider()
                     rightColumn

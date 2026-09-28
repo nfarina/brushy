@@ -140,6 +140,15 @@ final class DocumentStore: ObservableObject {
     @Published var wandContiguous = true
     @Published var wandSamplesAllLayers = false
     @Published var activeGuides: [SmartGuideLine] = []
+    /// Rectangle or ellipse for the Marquee tool. Per window and not
+    /// persisted, like the gradient options.
+    @Published var marqueeShape: MarqueeShape = .rectangle
+    /// Freehand or polygonal for the Lasso tool, per window like
+    /// `marqueeShape`. Switching drops a polygon being placed: its preview
+    /// is what keeps it alive (`CanvasController.livePolygon`).
+    @Published var lassoStyle: LassoStyle = .freehand {
+        didSet { if lassoStyle != oldValue { previewSelectionPath = nil } }
+    }
     /// In-progress marquee/lasso outline, canvas space.
     @Published var previewSelectionPath: CGPath?
     /// feather field, canvas px, applied when a mask is created.
@@ -184,6 +193,9 @@ final class DocumentStore: ObservableObject {
     /// Canvas-space pointer position while a brush-family tool is active,
     /// for the live size-ring cursor.
     @Published var brushCursorPoint: CGPoint?
+    /// The tool-strip button whose tip is showing (`ToolTipLabel`), drawn
+    /// over the canvas beside the strip.
+    @Published var hoveredTool: Tool?
     @Published private(set) var strokePreview: StrokePreview?
     /// One-line explanation when a stroke can't start on the current target.
     @Published var brushHint: String?

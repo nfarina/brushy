@@ -308,6 +308,8 @@ final class CanvasHostView: NSView {
             controller.handleReturn()
             return
         case 51, 117: // delete / forward delete
+            // Placing a polygon, ⌫ takes back its last vertex (Photoshop).
+            if controller.removeLastPolygonVertex() { return }
             // In Quick Mask the canvas is the channel, so ⌫ fills it with the
             // background colour instead of reaching the layer underneath.
             if store.quickMaskActive {
@@ -338,8 +340,13 @@ final class CanvasHostView: NSView {
         }
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "v": store.activeTool = .move
-        case "m": store.activeTool = .marquee
-        case "l": store.activeTool = .lasso
+        case "m":
+            // ⇧M cycles rectangle ↔ ellipse, as in Photoshop's tool groups.
+            if event.modifierFlags.contains(.shift) { store.marqueeShape = store.marqueeShape.next }
+            store.activeTool = .marquee
+        case "l":
+            if event.modifierFlags.contains(.shift) { store.lassoStyle = store.lassoStyle.next }
+            store.activeTool = .lasso
         case "w": store.activeTool = .wand
         case "c": store.activeTool = .crop
         case "b": store.activeTool = .brush

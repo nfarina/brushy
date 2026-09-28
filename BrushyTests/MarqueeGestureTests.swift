@@ -117,4 +117,31 @@ final class MarqueeGestureTests: XCTestCase {
         lasso.closeSubpath()
         XCTAssertTrue(SelectionState.measuredSize(of: lasso) == (11, 21))
     }
+
+    func testEllipticalMarqueeSelectsTheInscribedEllipse() throws {
+        let (store, controller) = makeController()
+        store.marqueeShape = .ellipse
+        controller.mouseDown(at: CGPoint(x: 100, y: 100), modifiers: [], clickCount: 1)
+        controller.mouseDragged(to: CGPoint(x: 140, y: 120), modifiers: [])
+        controller.modifiersChanged([.shift])
+        let preview = try XCTUnwrap(store.previewSelectionPath)
+        XCTAssertEqual(preview.boundingBoxOfPath, CGRect(x: 100, y: 100, width: 40, height: 40),
+                       "⇧ makes a circle, on the same whole-pixel box as the rectangle")
+        XCTAssertTrue(SelectionState.measuredSize(of: preview) == (40, 40))
+
+        controller.mouseUp(at: CGPoint(x: 140, y: 120), modifiers: [.shift], clickCount: 1)
+        let path = try XCTUnwrap(store.selection.path)
+        XCTAssertTrue(path.contains(CGPoint(x: 120, y: 120)), "centre is selected")
+        XCTAssertFalse(path.contains(CGPoint(x: 102, y: 102)), "the box's corner is not")
+    }
+
+    func testMarqueeShapeCyclesAndBuildsItsPath() {
+        XCTAssertEqual(MarqueeShape.rectangle.next, .ellipse)
+        XCTAssertEqual(MarqueeShape.ellipse.next, .rectangle)
+        let rect = CGRect(x: 0, y: 0, width: 10, height: 6)
+        XCTAssertTrue(SelectionState.marqueePath(in: rect, shape: .rectangle)
+            .contains(CGPoint(x: 0.5, y: 0.5)))
+        XCTAssertFalse(SelectionState.marqueePath(in: rect, shape: .ellipse)
+            .contains(CGPoint(x: 0.5, y: 0.5)))
+    }
 }

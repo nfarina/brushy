@@ -19,7 +19,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .move: return "Move"
-        case .marquee: return "Rectangular Marquee"
+        case .marquee: return "Marquee"
         case .lasso: return "Lasso"
         case .wand: return "Magic Wand"
         case .crop: return "Crop"

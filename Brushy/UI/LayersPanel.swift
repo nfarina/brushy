@@ -224,11 +224,14 @@ struct LayersPanel: View {
                     .lineLimit(1)
                     .font(.callout.weight(.medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .onTapGesture(count: 2) {
+                    // Simultaneous, not `onTapGesture(count: 2)`: that makes
+                    // the List wait out the double-click interval before a
+                    // single click on the name selects the row.
+                    .simultaneousGesture(TapGesture(count: 2).onEnded {
                         editingRowID = group.id
                         editingName = group.name
                         nameFieldFocused = true
-                    }
+                    })
             }
 
             Text("\(Int((group.opacity * 100).rounded()))%")
@@ -428,11 +431,14 @@ struct LayersPanel: View {
                           ? "Smart layer — editing its pixels rasterizes it first "
                             + "(double-click the thumbnail to do it now)"
                           : "Pixel layer")
-                    .onTapGesture(count: 2) {
+                    // Simultaneous, not `onTapGesture(count: 2)`: that makes
+                    // the List wait out the double-click interval before a
+                    // single click on the name selects the row.
+                    .simultaneousGesture(TapGesture(count: 2).onEnded {
                         editingRowID = layer.id
                         editingName = layer.name
                         nameFieldFocused = true
-                    }
+                    })
             }
 
             if !layer.effects.isEmpty {

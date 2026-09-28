@@ -313,6 +313,16 @@ extension SelectionState {
                       width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
+    /// The Marquee's outline for a `marqueeRect`: the rectangle itself, or the
+    /// ellipse inscribed in it (Photoshop's Elliptical Marquee). The ellipse
+    /// is kept as a path; its edge anti-aliases when coverage is rasterised.
+    static func marqueePath(in rect: CGRect, shape: MarqueeShape) -> CGPath {
+        switch shape {
+        case .rectangle: return CGPath(rect: rect, transform: nil)
+        case .ellipse: return CGPath(ellipseIn: rect, transform: nil)
+        }
+    }
+
     /// Whole-pixel width × height of an outline's bounding box — the size the
     /// marquee callout and the options bar report, for measuring (Photoshop's
     /// W/H readout). A marquee is already on the grid; a lasso or wand outline
@@ -354,5 +364,62 @@ extension SelectionState {
         let moved = SelectionAlpha(rect: alpha.rect.offsetBy(dx: transform.tx, dy: transform.ty),
                                    texture: alpha.texture)
         return SelectionState(path: mapped.normalized(), alpha: moved)
+    }
+}
+
+/// The Marquee tool's two shapes — Photoshop's Rectangular and Elliptical
+/// Marquee, one tool here with the shape picked in the options bar (as the
+/// Shape tool picks its kind) or cycled with ⇧M.
+enum MarqueeShape: String, CaseIterable, Identifiable {
+    case rectangle
+    case ellipse
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .rectangle: return "Rectangular Marquee"
+        case .ellipse: return "Elliptical Marquee"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .rectangle: return "rectangle.dashed"
+        case .ellipse: return "circle.dashed"
+        }
+    }
+
+    var next: MarqueeShape {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
+}
+
+/// The Lasso tool's two styles — Photoshop's Lasso and Polygonal Lasso,
+/// grouped the same way as `MarqueeShape` (options bar, ⇧L, right-click).
+enum LassoStyle: String, CaseIterable, Identifiable {
+    case freehand
+    case polygonal
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .freehand: return "Lasso"
+        case .polygonal: return "Polygonal Lasso"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .freehand: return "lasso"
+        case .polygonal: return "point.3.connected.trianglepath.dotted"
+        }
+    }
+
+    var next: LassoStyle {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
     }
 }

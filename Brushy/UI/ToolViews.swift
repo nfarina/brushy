@@ -5,23 +5,64 @@ import SwiftUI
 struct ToolStrip: View {
     @ObservedObject var store: DocumentStore
 
+    // Layout the tool tip reads to line up with its button.
+    static let buttonHeight: CGFloat = 30
+    static let spacing: CGFloat = 6
+    static let topPadding: CGFloat = 10
+
+    /// Top of `tool`'s button, from the top of the strip.
+    static func buttonTop(of tool: Tool) -> CGFloat {
+        let index = CGFloat(Tool.allCases.firstIndex(of: tool) ?? 0)
+        return topPadding + index * (buttonHeight + spacing)
+    }
+
+    @State private var showTip: Task<Void, Never>?
+    @State private var tipHiddenAt = Date.distantPast
+
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: Self.spacing) {
             ForEach(Tool.allCases) { tool in
                 Button {
+                    hideTip()
                     store.activeTool = tool
                 } label: {
-                    Image(systemName: tool == .shape ? store.shapeStyle.kind.systemImage
-                                                     : tool.systemImage)
+                    Image(systemName: icon(for: tool))
                         .font(.system(size: 15, weight: .medium))
-                        .frame(width: 34, height: 30)
+                        .frame(width: 34, height: Self.buttonHeight)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(store.activeTool == tool ? Color.accentColor : Color.primary)
                 .background(store.activeTool == tool ? Color.accentColor.opacity(0.18) : .clear,
                             in: RoundedRectangle(cornerRadius: 6))
-                .help("\(tool.displayName) (\(tool.shortcutKey))")
+                // The system tooltip waits ~2 s for a still pointer; this tip
+                // shows in ⅓ s, and at once while moving along the strip.
+                .onHover { inside in hover(tool, inside) }
+                .accessibilityLabel(ToolTipLabel.title(for: tool, store: store))
+                .accessibilityHint(ToolTipLabel.detail(for: tool, store: store) ?? "")
+                .contextMenu {
+                    // Photoshop's tool-group flyout, for muscle memory; the
+                    // options bar is the primary picker.
+                    if tool == .marquee {
+                        ForEach(MarqueeShape.allCases) { shape in
+                            Button {
+                                store.marqueeShape = shape
+                                store.activeTool = .marquee
+                            } label: {
+                                Label(shape.displayName, systemImage: shape.systemImage)
+                            }
+                        }
+                    } else if tool == .lasso {
+                        ForEach(LassoStyle.allCases) { style in
+                            Button {
+                                store.lassoStyle = style
+                                store.activeTool = .lasso
+                            } label: {
+                                Label(style.displayName, systemImage: style.systemImage)
+                            }
+                        }
+                    }
+                }
             }
             ColorSwatches(store: store)
                 .padding(.top, 8)
@@ -29,8 +70,98 @@ struct ToolStrip: View {
                 .padding(.top, 10)
             Spacer()
         }
-        .padding(.top, 10)
+        .padding(.top, Self.topPadding)
         .frame(maxHeight: .infinity)
+    }
+
+    private func hover(_ tool: Tool, _ inside: Bool) {
+        showTip?.cancel()
+        if inside {
+            if store.hoveredTool != nil || Date().timeIntervalSince(tipHiddenAt) < 0.4 {
+                store.hoveredTool = tool
+                return
+            }
+            showTip = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                store.hoveredTool = tool
+            }
+        } else if store.hoveredTool == tool {
+            store.hoveredTool = nil
+            tipHiddenAt = Date()
+        }
+    }
+
+    private func hideTip() {
+        showTip?.cancel()
+        store.hoveredTool = nil
+    }
+
+    /// The Shape and Marquee buttons show the kind they will draw.
+    private func icon(for tool: Tool) -> String {
+        switch tool {
+        case .shape: return store.shapeStyle.kind.systemImage
+        case .marquee: return store.marqueeShape.systemImage
+        case .lasso: return store.lassoStyle.systemImage
+        default: return tool.systemImage
+        }
+    }
+
+}
+
+/// A tool's name and shortcuts, floating over the canvas beside its button.
+struct ToolTipLabel: View {
+    @ObservedObject var store: DocumentStore
+    let tool: Tool
+
+    static func title(for tool: Tool, store: DocumentStore) -> String {
+        switch tool {
+        case .marquee: return store.marqueeShape.displayName
+        case .lasso: return store.lassoStyle.displayName
+        default: return tool.displayName
+        }
+    }
+
+    /// Shortcuts beyond the tool's own key.
+    static func detail(for tool: Tool, store: DocumentStore) -> String? {
+        switch tool {
+        case .marquee:
+            return "⇧M or right-click: \(store.marqueeShape.next.displayName)"
+        case .lasso:
+            return "⇧L or right-click: \(store.lassoStyle.next.displayName)"
+        case .brush, .eraser:
+            return "[ ] size · ⇧[ ⇧] hardness · 1–0 opacity"
+        default:
+            return nil
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(Self.title(for: tool, store: store))
+                    .font(.callout.weight(.medium))
+                Text(tool.shortcutKey)
+                    .font(.caption.weight(.semibold).monospaced())
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
+            }
+            if let detail = Self.detail(for: tool, store: store) {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .fixedSize()
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        // Solid, like the toast: it floats over the Metal canvas.
+        .background(Color(white: 0.13).opacity(0.94), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+        .allowsHitTesting(false)
     }
 }
 
@@ -311,6 +442,29 @@ struct ToolOptionsBar: View {
 
     private var selectionOptions: some View {
         HStack(spacing: 8) {
+            if store.activeTool == .marquee {
+                Picker("", selection: $store.marqueeShape) {
+                    ForEach(MarqueeShape.allCases) { shape in
+                        Image(systemName: shape.systemImage).tag(shape)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 76)
+                .help("Marquee shape: rectangle or ellipse (⇧M switches)")
+                Divider().frame(height: 18)
+            } else if store.activeTool == .lasso {
+                Picker("", selection: $store.lassoStyle) {
+                    ForEach(LassoStyle.allCases) { style in
+                        Image(systemName: style.systemImage).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 76)
+                .help("Lasso style: freehand or polygonal (⇧L switches)")
+                Divider().frame(height: 18)
+            }
             Text("Feather")
                 .font(.callout)
             TextField("0", value: Binding(
@@ -325,8 +479,10 @@ struct ToolOptionsBar: View {
                 .font(.callout)
             Divider().frame(height: 18)
             Text(store.activeTool == .marquee
-                 ? "⇧ adds · ⌥ subtracts · while dragging: ⇧ square, ⌥ from centre, Space moves · ⌘D deselects"
-                 : "⇧ adds · ⌥ subtracts · ⌘D deselects")
+                 ? "⇧ adds · ⌥ subtracts · while dragging: ⇧ \(store.marqueeShape == .ellipse ? "circle" : "square"), ⌥ from centre, Space moves · ⌘D deselects"
+                 : store.lassoStyle == .polygonal
+                     ? "Click to add points · ⇧ 45° · close: click the start, double-click or Return · ⌫ removes a point · Esc cancels"
+                     : "⇧ adds · ⌥ subtracts · ⌘D deselects")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
