@@ -6,6 +6,21 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.6</title>
+            <pubDate>Mon, 28 Sep 2026 11:28:37 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.6</sparkle:fullReleaseNotesLink>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- A Help menu, with the standard Search field for finding any menu command by name. Help ▸ Brushy Help (⌘?) opens the README.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.6/Brushy-macos.zip" length="5756658" type="application/octet-stream" sparkle:edSignature="aQ/xYKrz6E2m1ddFXgNN3NYzlnLi5aGliJOUJQiIZUXXE5VZV6Qd3qOA1fHiTD7SVCQPy5A/2Ih4Qv66FgxDAA=="/>
+        </item>
+        <item>
             <title>0.2.5</title>
             <pubDate>Sat, 26 Sep 2026 14:11:51 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -35,25 +50,6 @@
 - Marquee, lasso and magic wand: the options bar shows the selection's size in pixels, next to the canvas size.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.4/Brushy-macos.zip" length="5752482" type="application/octet-stream" sparkle:edSignature="xTb7GQupyCsIdwZMlHFqXxRluUbfylMArRTGcp2vFKF1UUse6MKudJbXPytHaEdJi5x3Zgykz98l0nelVmiaCg=="/>
-        </item>
-        <item>
-            <title>0.2.3</title>
-            <pubDate>Mon, 14 Sep 2026 15:50:47 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.3</sparkle:fullReleaseNotesLink>
-            <sparkle:version>5</sparkle:version>
-            <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Layer thumbnails: ⌘⇧-click adds a layer's pixels to the selection, ⌘⌥-click subtracts them, and ⌘⇧⌥-click intersects, keeping soft edges. ⌘-click still selects them.
-- Marquee, lasso and magic wand: ⇧⌥ now intersects with the selection.
-- Selection cursors show a +, − or × badge for add, subtract and intersect, on the canvas and over a layer thumbnail while ⌘ is held.
-- View ▸ Show Selection Edges (⇧⌘H) hides or shows the selection's marching ants.
-- Marquee: a ⇧ or ⌥ you're already holding when you click only picks add or subtract. Release and press it again mid-drag to square or centre the rectangle, as in Photoshop.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.3/Brushy-macos.zip" length="5749589" type="application/octet-stream" sparkle:edSignature="K3dBCAFjveparu9ulgCzKBQ3PGquPeDHTngVhmrP72ijyA1aGa7vimzbKaeqzDcaIilFG5CKjYDeGvH8Atv+CQ=="/>
         </item>
     </channel>
 </rss>
