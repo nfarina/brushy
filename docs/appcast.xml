@@ -6,6 +6,24 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.7</title>
+            <pubDate>Mon, 28 Sep 2026 13:03:24 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.7</sparkle:fullReleaseNotesLink>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.2.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Elliptical Marquee: choose rectangle or ellipse in the Marquee's options bar, press ⇧M, or right-click the Marquee button.
+- Polygonal Lasso: choose it in the Lasso's options bar, press ⇧L, or right-click the Lasso button. Click to place points (⇧ for 45°), then click the first point, double-click or press Return to close. ⌫ removes the last point and Esc cancels.
+- Tools show their name and shortcuts after a moment's hover, instead of the slow system tooltip.
+- Clicking a layer's or group's name now selects it immediately, instead of after a short delay.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.7/Brushy-macos.zip" length="5794131" type="application/octet-stream" sparkle:edSignature="iedvrdafQLa9FTtHrXgwvqvkX6jlTrBTTobpvI5a+kjxXk2A6PUaJuqEMNgdNJ1cfgyOA79rikUp7ZsyKp+KBw=="/>
+        </item>
+        <item>
             <title>0.2.6</title>
             <pubDate>Mon, 28 Sep 2026 11:28:37 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -34,22 +52,6 @@
 - Number keys set the selected layer's opacity, as in Photoshop: 1–9 for 10–90%, 0 for 100%. Type two digits quickly for an exact value (4 then 5 gives 45%, 0 then 0 gives 0%). With a group selected they set the group's opacity, and with the brush or eraser they set the brush opacity.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.5/Brushy-macos.zip" length="5756386" type="application/octet-stream" sparkle:edSignature="a9pGeVfv1Z5+vbQPSy5TbzLXAwbHhGhsoJRrc4x7lS3xQ9ecMy7/XWvueWOctig66ggJe3ZqLassKKz1A1KwCg=="/>
-        </item>
-        <item>
-            <title>0.2.4</title>
-            <pubDate>Tue, 22 Sep 2026 12:54:57 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.4</sparkle:fullReleaseNotesLink>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>0.2.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Marquee: a W × H readout in pixels follows the pointer while you drag out a rectangle, as in Photoshop.
-- Marquee, lasso and magic wand: the options bar shows the selection's size in pixels, next to the canvas size.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.4/Brushy-macos.zip" length="5752482" type="application/octet-stream" sparkle:edSignature="xTb7GQupyCsIdwZMlHFqXxRluUbfylMArRTGcp2vFKF1UUse6MKudJbXPytHaEdJi5x3Zgykz98l0nelVmiaCg=="/>
         </item>
     </channel>
 </rss>
