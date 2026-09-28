@@ -379,6 +379,14 @@ enum MainMenuBuilder {
         // NSApplication.shared just to satisfy it is not free in-process.
         NSApp?.windowsMenu = window
 
+        // Help. Registered as the app's help menu, AppKit adds the Search
+        // field that finds any menu item by name.
+        let help = NSMenu(title: "Help")
+        help.addItem(withTitle: "Brushy Help",
+                     action: #selector(AppDelegate.showHelp(_:)), keyEquivalent: "?")
+        main.addItem(submenu: help, title: "Help")
+        NSApp?.helpMenu = help
+
         return main
     }
 }

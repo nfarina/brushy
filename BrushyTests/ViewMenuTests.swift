@@ -33,4 +33,12 @@ final class ViewMenuTests: XCTestCase {
         XCTAssertTrue(document.validateUserInterfaceItem(menuItem))
         XCTAssertEqual(menuItem.state, .off)
     }
+
+    func testHelpMenuComesLastWithBrushyHelp() throws {
+        let menu = MainMenuBuilder.build()
+        XCTAssertEqual(menu.items.last?.title, "Help",
+                       "the Help menu hosts AppKit's menu-item search")
+        let help = try XCTUnwrap(item(for: #selector(AppDelegate.showHelp(_:)), in: menu))
+        XCTAssertEqual(help.keyEquivalent, "?")
+    }
 }

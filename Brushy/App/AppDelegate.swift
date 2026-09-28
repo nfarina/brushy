@@ -59,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         MainActor.assumeIsolated { ChatStore.shared.isSidebarVisible.toggle() }
     }
 
+    /// Help → Brushy Help (⌘?): there is no Help Book, so this opens the
+    /// README, which is the app's documentation.
+    @objc func showHelp(_ sender: Any?) {
+        NSWorkspace.shared.open(URL(string: "https://github.com/nfarina/brushy#readme")!)
+    }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(toggleChatSidebar(_:)) {
             item.state = MainActor.assumeIsolated { ChatStore.shared.isSidebarVisible } ? .on : .off
