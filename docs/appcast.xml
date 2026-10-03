@@ -6,6 +6,21 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.8</title>
+            <pubDate>Sat, 03 Oct 2026 13:38:14 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.8</sparkle:fullReleaseNotesLink>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.2.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Marquee, lasso and magic wand: arrow keys nudge the selection by 1 px, or 10 px with ⇧, without moving any pixels, as in Photoshop.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.8/Brushy-macos.zip" length="5794208" type="application/octet-stream" sparkle:edSignature="9dKP3ZjOJJZgW+7edSCntSulhhZfgJU0GicYLtRNBMfe7KXk6S8CO2z5rYdcuAoCX0Cx3TAnm9oj2+yZo0/GCg=="/>
+        </item>
+        <item>
             <title>0.2.7</title>
             <pubDate>Mon, 28 Sep 2026 13:03:24 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -37,21 +52,6 @@
 - A Help menu, with the standard Search field for finding any menu command by name. Help ▸ Brushy Help (⌘?) opens the README.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.6/Brushy-macos.zip" length="5756658" type="application/octet-stream" sparkle:edSignature="aQ/xYKrz6E2m1ddFXgNN3NYzlnLi5aGliJOUJQiIZUXXE5VZV6Qd3qOA1fHiTD7SVCQPy5A/2Ih4Qv66FgxDAA=="/>
-        </item>
-        <item>
-            <title>0.2.5</title>
-            <pubDate>Sat, 26 Sep 2026 14:11:51 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.5</sparkle:fullReleaseNotesLink>
-            <sparkle:version>7</sparkle:version>
-            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Number keys set the selected layer's opacity, as in Photoshop: 1–9 for 10–90%, 0 for 100%. Type two digits quickly for an exact value (4 then 5 gives 45%, 0 then 0 gives 0%). With a group selected they set the group's opacity, and with the brush or eraser they set the brush opacity.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.5/Brushy-macos.zip" length="5756386" type="application/octet-stream" sparkle:edSignature="a9pGeVfv1Z5+vbQPSy5TbzLXAwbHhGhsoJRrc4x7lS3xQ9ecMy7/XWvueWOctig66ggJe3ZqLassKKz1A1KwCg=="/>
         </item>
     </channel>
 </rss>
