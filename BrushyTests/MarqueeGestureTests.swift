@@ -144,4 +144,22 @@ final class MarqueeGestureTests: XCTestCase {
         XCTAssertFalse(SelectionState.marqueePath(in: rect, shape: .ellipse)
             .contains(CGPoint(x: 0.5, y: 0.5)))
     }
+
+    func testArrowKeysNudgeTheSelectionOutlineNotTheLayer() throws {
+        let (store, controller) = makeController()
+        store.combineSelection(CGPath(rect: CGRect(x: 100, y: 100, width: 40, height: 20), transform: nil),
+                               mode: .replace)
+        let documentBefore = store.document
+        controller.nudge(dx: 1, dy: 0, big: false)
+        controller.nudge(dx: 0, dy: -1, big: true)
+        XCTAssertEqual(try XCTUnwrap(store.selection.path).boundingBoxOfPath,
+                       CGRect(x: 101, y: 90, width: 40, height: 20), "1 px, and 10 px with ⇧")
+        XCTAssertEqual(store.document, documentBefore, "pixels and layers stay put")
+        XCTAssertEqual(store.historyEntries.last?.actionName, "Move Selection Outline")
+
+        store.deselect()
+        let entries = store.historyEntries.count
+        controller.nudge(dx: 1, dy: 0, big: false)
+        XCTAssertEqual(store.historyEntries.count, entries, "nothing to nudge without a selection")
+    }
 }

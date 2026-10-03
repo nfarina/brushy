@@ -1422,6 +1422,15 @@ final class DocumentStore: ObservableObject {
                                   current.concatenating(CGAffineTransform(translationX: dx, y: dy)))
             return
         }
+        // With a selection tool, the arrows move the selection OUTLINE and
+        // leave the pixels alone (Photoshop) — the keyboard form of dragging
+        // the ants.
+        if [.marquee, .lasso, .wand].contains(activeTool) {
+            guard !selection.isEmpty else { return }
+            commitPendingSessions()
+            moveSelectionOutline(by: CGPoint(x: dx, y: dy))
+            return
+        }
         guard activeTool == .move, let layer = selectedLayer else { return }
         let moved = TransformMath.moved(initial: layer.transform, delta: CGPoint(x: dx, y: dy))
         var doc = document

@@ -908,6 +908,8 @@ final class CanvasController {
     }
 
     func nudge(dx: CGFloat, dy: CGFloat, big: Bool) {
+        // Not while placing a polygon: moving the selection would end it.
+        guard livePolygon == nil else { return }
         let factor: CGFloat = big ? 10 : 1
         store.nudgeSelectedLayer(dx: dx * factor, dy: dy * factor)
     }
