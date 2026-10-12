@@ -160,4 +160,52 @@ final class RasterizeTests: XCTestCase {
         XCTAssertEqual(store.document.layers[0].sourceID, sourceID)
         XCTAssertNil(store.toast, "nothing surprising happened, so nothing to announce")
     }
+
+    // MARK: - Enlarged paint layers
+
+    /// Image Size scales transforms, never pixels, so a blank layer made
+    /// before an upscale has a grid coarser than the canvas. A fill landing
+    /// on that grid came out blurred; it now resamples the layer first.
+    func testFillOnAPaintLayerEnlargedByImageSizeIsCrisp() throws {
+        var document = Document(canvasSize: CGSize(width: 80, height: 60))
+        document.layers = [try XCTUnwrap(DocumentStore.blankPaintLayer(canvasSize: document.canvasSize,
+                                                                       name: "Layer 1"))]
+        let store = DocumentStore(document: document)
+        store.resizeImage(to: CGSize(width: 202, height: 151))
+        let enlarged = try XCTUnwrap(store.selectedLayer)
+        XCTAssertTrue(DocumentStore.isEnlarged(enlarged))
+        XCTAssertTrue(store.canFillSelection)
+
+        store.combineSelection(CGPath(rect: CGRect(x: 51, y: 41, width: 60, height: 40), transform: nil),
+                               mode: .replace)
+        store.fillSelection(using: CGColor(gray: 0, alpha: 1))
+
+        let layer = try XCTUnwrap(store.selectedLayer)
+        XCTAssertFalse(DocumentStore.isEnlarged(layer), "baked onto the canvas grid")
+        XCTAssertGreaterThanOrEqual(layer.source.width, 202)
+        XCTAssertEqual(store.historyEntries.suffix(2).map(\.actionName),
+                       ["Rasterize Layer", "Fill Selection"])
+        // One pixel either side of each edge: fully out, fully in.
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 50, y: 60)).a, 0)
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 51, y: 60)).a, 255)
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 110, y: 60)).a, 255)
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 111, y: 60)).a, 0)
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 80, y: 40)).a, 0)
+        XCTAssertEqual(pixel(store, at: CGPoint(x: 80, y: 41)).a, 255)
+    }
+
+    func testOnlyEnlargedPaintLayersCount() throws {
+        let blank = try XCTUnwrap(DocumentStore.blankPaintLayer(canvasSize: CGSize(width: 10, height: 10),
+                                                                name: "L"))
+        XCTAssertFalse(DocumentStore.isEnlarged(blank))
+        var shrunk = blank
+        shrunk.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        XCTAssertFalse(DocumentStore.isEnlarged(shrunk), "a finer grid than the canvas paints crisply")
+        var rotated = blank
+        rotated.transform = CGAffineTransform(rotationAngle: 0.4)
+        XCTAssertFalse(DocumentStore.isEnlarged(rotated))
+        var grown = blank
+        grown.transform = CGAffineTransform(rotationAngle: 0.4).scaledBy(x: 2, y: 2)
+        XCTAssertTrue(DocumentStore.isEnlarged(grown))
+    }
 }

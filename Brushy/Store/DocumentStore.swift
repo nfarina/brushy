@@ -1661,17 +1661,31 @@ final class DocumentStore: ObservableObject {
     /// the rasterize. Returns the layer as it now is.
     @discardableResult
     private func autoRasterize(_ layer: Layer, because reason: String) -> Layer? {
+        let enlarged = Self.isEnlarged(layer)
         rasterizeLayer(layer.id)
         guard let updated = document[layerID: layer.id], updated.isPaintable else { return nil }
-        showToast("Rasterized “\(layer.name)” \(reason)")
+        showToast(enlarged ? "Resampled “\(layer.name)” to canvas resolution \(reason)"
+                           : "Rasterized “\(layer.name)” \(reason)")
         return updated
     }
 
-    /// True for anything whose pixels are off limits: an imported photo, or a
-    /// text/shape layer still driven by its spec.
+    /// A paint layer drawn larger than its pixels: Image Size and Free
+    /// Transform scale the transform and never resample (§2), which leaves a
+    /// grid coarser than the canvas. Paint or a fill landing on that grid is
+    /// magnified with it and comes out blurred, so pixel edits bake the layer
+    /// onto the canvas grid first — the same route a photo takes.
+    static func isEnlarged(_ layer: Layer) -> Bool {
+        guard layer.kind == .raster, layer.isPaintable else { return false }
+        let (sx, sy) = layer.transform.scaleComponents
+        return max(sx, sy) > 1.001
+    }
+
+    /// True for anything whose pixels are off limits as they stand: an
+    /// imported photo, a text/shape layer still driven by its spec, or a
+    /// paint layer whose grid is coarser than the canvas (`isEnlarged`).
     static func needsRasterize(_ layer: Layer) -> Bool {
         switch layer.kind {
-        case .raster: return !layer.isPaintable
+        case .raster: return !layer.isPaintable || isEnlarged(layer)
         // An adjustment has no pixels to rasterise — it IS its spec.
         case .adjustment: return false
         case .text, .shape: return true
@@ -2740,7 +2754,7 @@ final class DocumentStore: ObservableObject {
         if maskTargeted, layer.mask != nil {
             return .mask(layer)
         }
-        if layer.isPaintable {
+        if layer.isPaintable, !Self.isEnlarged(layer) {
             return .paint(layer)
         }
         return .needsRasterize(layer)
@@ -3103,12 +3117,17 @@ final class DocumentStore: ObservableObject {
         guard let layer = selectedLayer, selectedLayerEffectivelyVisible,
               layer.kind.adjustmentSpec == nil else { return nil }
         if maskTargeted, layer.mask != nil { return .mask(layer) }
-        if layer.isPaintable { return .pixels(layer) }
+        // An enlarged paint layer resolves to nothing here, so Fill and
+        // Gradient take their rasterize-then-retry path (`isEnlarged`).
+        if layer.isPaintable { return Self.isEnlarged(layer) ? nil : .pixels(layer) }
         if layer.mask != nil { return .mask(layer) }
         return nil
     }
 
-    var canFillSelection: Bool { quickMaskActive || resolveFillTarget() != nil }
+    var canFillSelection: Bool {
+        quickMaskActive || resolveFillTarget() != nil
+            || (selectedLayerEffectivelyVisible && selectedLayer.map(Self.isEnlarged) == true)
+    }
 
     /// Shown in the Fill dialog so it's unambiguous what will be filled.
     var fillTargetDescription: String {
@@ -3121,6 +3140,8 @@ final class DocumentStore: ObservableObject {
             return "Fills the mask of “\(layer.name)” with the colour's luminance — black hides, white reveals."
         case .pixels:
             return "Fills “\(layer.name)”."
+        case nil where Self.isEnlarged(layer):
+            return "Fills “\(layer.name)”, resampling it to canvas resolution first."
         case nil:
             return "“\(layer.name)” is an imported image — add a mask or use a paint layer."
         }
@@ -3330,6 +3351,8 @@ final class DocumentStore: ObservableObject {
             return "Gradient fills the mask of “\(layer.name)” with the colours' luminance — black hides, white reveals"
         case .pixels:
             return "Gradient fills “\(layer.name)”"
+        case nil where Self.isEnlarged(layer):
+            return "Gradient will resample “\(layer.name)” to canvas resolution first"
         case nil:
             return "“\(layer.name)” is an imported image — add a mask or use a paint layer"
         }
