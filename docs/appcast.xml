@@ -6,6 +6,22 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.9</title>
+            <pubDate>Mon, 12 Oct 2026 09:24:46 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.9</sparkle:fullReleaseNotesLink>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>0.2.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- Painting, filling or running a gradient on a paint layer that was enlarged (by Image Size or Free Transform) no longer comes out blurry. The layer is resampled to canvas resolution first, as its own undo step.
+- Selection outlines (marching ants) are now crisp at every zoom level, instead of blurring between screen pixels.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.9/Brushy-macos.zip" length="5795584" type="application/octet-stream" sparkle:edSignature="ULxcLGXM4fvRIclD1Y5saH29cH0WBabYZipL+UsgT98Pm/Bve18WpX7xGwNI7huNp5MnltOGohYOQkrdjvRwBg=="/>
+        </item>
+        <item>
             <title>0.2.8</title>
             <pubDate>Sat, 03 Oct 2026 13:38:14 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -37,21 +53,6 @@
 - Clicking a layer's or group's name now selects it immediately, instead of after a short delay.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.7/Brushy-macos.zip" length="5794131" type="application/octet-stream" sparkle:edSignature="iedvrdafQLa9FTtHrXgwvqvkX6jlTrBTTobpvI5a+kjxXk2A6PUaJuqEMNgdNJ1cfgyOA79rikUp7ZsyKp+KBw=="/>
-        </item>
-        <item>
-            <title>0.2.6</title>
-            <pubDate>Mon, 28 Sep 2026 11:28:37 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.6</sparkle:fullReleaseNotesLink>
-            <sparkle:version>8</sparkle:version>
-            <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- A Help menu, with the standard Search field for finding any menu command by name. Help ▸ Brushy Help (⌘?) opens the README.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.6/Brushy-macos.zip" length="5756658" type="application/octet-stream" sparkle:edSignature="aQ/xYKrz6E2m1ddFXgNN3NYzlnLi5aGliJOUJQiIZUXXE5VZV6Qd3qOA1fHiTD7SVCQPy5A/2Ih4Qv66FgxDAA=="/>
         </item>
     </channel>
 </rss>
