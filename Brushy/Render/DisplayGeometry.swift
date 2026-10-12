@@ -64,4 +64,40 @@ enum DisplayGeometry {
         y = min(max(y, bounds.minY + margin), bounds.maxY - margin - size.height)
         return CGRect(origin: CGPoint(x: x, y: y), size: size)
     }
+
+    /// `path` (canvas space) in view points, every vertex snapped to the
+    /// device-pixel boundary where the composite switches canvas pixels (the
+    /// `pixelGridLines` rule), so a stroke along a whole-pixel edge — a
+    /// marquee's marching ants — fills whole device pixels rather than
+    /// blurring across two. `viewTransform` is canvas → view points, `scale`
+    /// the backing scale. A stroke an odd number of device pixels wide is
+    /// centred on a pixel, an even one on a boundary. Curves and diagonals
+    /// move by under one device pixel.
+    static func pixelSnappedViewPath(_ path: CGPath, viewTransform: CGAffineTransform,
+                                     canvasSize: CGSize, scale: CGFloat,
+                                     lineWidth: CGFloat = 1) -> CGPath {
+        let aligned = pixelAligned(viewTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)),
+                                   canvasSize: canvasSize)
+        let devicePixels = (lineWidth * scale).rounded()
+        let inset: CGFloat = Int(devicePixels) % 2 == 1 ? 0.5 : 0
+        func snap(_ point: CGPoint) -> CGPoint {
+            let device = point.applying(aligned)
+            return CGPoint(x: ((device.x - 0.5).rounded(.up) + inset) / scale,
+                           y: ((device.y - 0.5).rounded(.up) + inset) / scale)
+        }
+        let snapped = CGMutablePath()
+        path.applyWithBlock { element in
+            let points = element.pointee.points
+            switch element.pointee.type {
+            case .moveToPoint: snapped.move(to: snap(points[0]))
+            case .addLineToPoint: snapped.addLine(to: snap(points[0]))
+            case .addQuadCurveToPoint: snapped.addQuadCurve(to: snap(points[1]), control: snap(points[0]))
+            case .addCurveToPoint:
+                snapped.addCurve(to: snap(points[2]), control1: snap(points[0]), control2: snap(points[1]))
+            case .closeSubpath: snapped.closeSubpath()
+            @unknown default: break
+            }
+        }
+        return snapped
+    }
 }

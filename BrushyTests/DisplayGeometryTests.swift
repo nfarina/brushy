@@ -51,4 +51,35 @@ final class DisplayGeometryTests: XCTestCase {
         let outside = DisplayGeometry.readoutFrame(size: size, beside: CGPoint(x: 500, y: -50), in: bounds)
         XCTAssertTrue(bounds.contains(outside))
     }
+
+    func testSnappedPathPutsWholePixelEdgesOnDevicePixels() {
+        // 129% zoom with a fractional pan: a whole-pixel rect's edges land
+        // between device pixels unless snapped.
+        let transform = CGAffineTransform(a: 1.29, b: 0, c: 0, d: 1.29, tx: 37.3, ty: 12.8)
+        let rect = CGPath(rect: CGRect(x: 3, y: 2, width: 9, height: 5), transform: nil)
+        for scale in [1.0, 2.0] as [CGFloat] {
+            let box = DisplayGeometry.pixelSnappedViewPath(rect, viewTransform: transform,
+                                                           canvasSize: canvas, scale: scale)
+                .boundingBoxOfPath
+            // A 1-pt stroke is 1 device px at 1× (centred on a pixel) and
+            // 2 at 2× (centred on a boundary).
+            let offset: CGFloat = scale == 1 ? 0.5 : 0
+            for edge in [box.minX, box.maxX, box.minY, box.maxY] {
+                let device = edge * scale - offset
+                XCTAssertEqual(device, device.rounded(), accuracy: 1e-9)
+            }
+            let exact = CGRect(x: 3, y: 2, width: 9, height: 5).applying(transform)
+            XCTAssertLessThanOrEqual(abs(box.minX - exact.minX), 1.5 / scale)
+            XCTAssertLessThanOrEqual(abs(box.maxY - exact.maxY), 1.5 / scale)
+        }
+    }
+
+    func testSnappedPathKeepsCurvesAndClosure() {
+        let ellipse = CGPath(ellipseIn: CGRect(x: 2, y: 2, width: 10, height: 6), transform: nil)
+        let snapped = DisplayGeometry.pixelSnappedViewPath(
+            ellipse, viewTransform: CGAffineTransform(scaleX: 3, y: 3), canvasSize: canvas, scale: 2)
+        XCTAssertEqual(snapped.boundingBoxOfPath, CGRect(x: 6, y: 6, width: 30, height: 18))
+        XCTAssertTrue(snapped.contains(CGPoint(x: 21, y: 15)))
+        XCTAssertFalse(snapped.contains(CGPoint(x: 7, y: 7)), "still an ellipse, not its box")
+    }
 }

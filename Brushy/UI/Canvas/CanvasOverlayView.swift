@@ -216,8 +216,12 @@ final class CanvasOverlayView: NSView {
     }
 
     private func drawAnts(_ canvasPath: CGPath, viewport: Viewport) {
-        var transform = viewport.viewTransform
-        guard let viewPath = canvasPath.copy(using: &transform) else { return }
+        // Snapped to the composite's device pixels: at a fractional zoom a
+        // whole-pixel marquee edge lands between them, and the ants blur.
+        let viewPath = DisplayGeometry.pixelSnappedViewPath(
+            canvasPath, viewTransform: viewport.viewTransform,
+            canvasSize: store.document.canvasSize,
+            scale: window?.backingScaleFactor ?? 2)
         let path = NSBezierPath(cgPath: viewPath)
         path.lineWidth = 1
 
