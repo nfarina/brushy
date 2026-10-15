@@ -810,7 +810,9 @@ final class DocumentStore: ObservableObject {
                 }
                 let layer = Self.placedLayer(image,
                                              named: url.deletingPathExtension().lastPathComponent,
-                                             canvasSize: doc.canvasSize)
+                                             canvasSize: doc.canvasSize,
+                                             center: adoptedEmptyDocument ? nil
+                                                 : arrivalCenter(canvasSize: doc.canvasSize))
                 doc.layers.append(layer)
                 lastPlaced = layer.id
             } catch {
@@ -831,22 +833,32 @@ final class DocumentStore: ObservableObject {
         }
     }
 
-    /// Placement rule: 100% scale, centred; scaled down to fit (proportionally,
+    /// Placement rule: 100% scale, centred on `center` (the canvas centre by
+    /// default; interactive arrivals pass the visible centre — see
+    /// `arrivalCenter(canvasSize:)`); scaled down to fit (proportionally,
     /// via the transform — non-destructive) only if larger than the canvas.
-    static func placedLayer(_ image: CGImage, named name: String, canvasSize: CGSize) -> Layer {
+    static func placedLayer(_ image: CGImage, named name: String, canvasSize: CGSize,
+                            center: CGPoint? = nil) -> Layer {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         var scale: CGFloat = 1
         if w > canvasSize.width || h > canvasSize.height {
             scale = min(canvasSize.width / w, canvasSize.height / h)
         }
-        var tx = (canvasSize.width - w * scale) / 2
-        var ty = (canvasSize.height - h * scale) / 2
+        let center = center ?? CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        var tx = center.x - w * scale / 2
+        var ty = center.y - h * scale / 2
         // At 100% land on whole pixels: an odd size difference would centre
         // the image half a pixel off the grid and resample it soft.
         if scale == 1 { tx.round(); ty.round() }
         let transform = CGAffineTransform(scaleX: scale, y: scale)
             .concatenating(CGAffineTransform(translationX: tx, y: ty))
         return Layer(name: name, source: image, transform: transform)
+    }
+
+    /// Centre for content arriving interactively (paste, place): the middle
+    /// of the canvas area on screen, so it never lands out of view (§4).
+    private func arrivalCenter(canvasSize: CGSize) -> CGPoint {
+        viewport.visibleCanvasCenter(canvasSize: canvasSize)
     }
 
     // MARK: - Layer operations
@@ -3788,7 +3800,9 @@ final class DocumentStore: ObservableObject {
                                                          height: image.height))
             }
             let layer = Self.placedLayer(image, named: "Pasted Layer",
-                                         canvasSize: doc.canvasSize)
+                                         canvasSize: doc.canvasSize,
+                                         center: adopted ? nil
+                                             : arrivalCenter(canvasSize: doc.canvasSize))
             finishPaste(layer, document: doc, adopted: adopted, into: into)
         case .layer(let envelope):
             guard var layer = LayerPasteboard.layer(from: envelope) else {
@@ -3806,7 +3820,9 @@ final class DocumentStore: ObservableObject {
                 doc.canvasSize = Self.clampedSize(sourceCanvas)
             }
             if doc.canvasSize != sourceCanvas {
-                layer = Self.recentered(layer, canvasSize: doc.canvasSize)
+                layer = Self.recentered(layer, canvasSize: doc.canvasSize,
+                                        center: adopted ? nil
+                                            : arrivalCenter(canvasSize: doc.canvasSize))
             }
             finishPaste(layer, document: doc, adopted: adopted, into: into)
         }
@@ -3837,7 +3853,8 @@ final class DocumentStore: ObservableObject {
     /// `placedLayer`'s rule generalised to a layer that already has a
     /// transform: keep its scale/rotation, centre its bounds on the canvas,
     /// and shrink proportionally only if larger than the canvas.
-    static func recentered(_ layer: Layer, canvasSize: CGSize) -> Layer {
+    static func recentered(_ layer: Layer, canvasSize: CGSize,
+                           center: CGPoint? = nil) -> Layer {
         let bounds = layer.canvasBounds
         guard bounds.width > 0, bounds.height > 0 else { return layer }
         var scale: CGFloat = 1
@@ -3845,11 +3862,11 @@ final class DocumentStore: ObservableObject {
             scale = min(canvasSize.width / bounds.width,
                         canvasSize.height / bounds.height)
         }
-        var center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        var center = center ?? CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
         if scale == 1 {
             // Whole-pixel landing, as in `placedLayer`.
-            center = CGPoint(x: ((canvasSize.width - bounds.width) / 2).rounded() + bounds.width / 2,
-                             y: ((canvasSize.height - bounds.height) / 2).rounded() + bounds.height / 2)
+            center = CGPoint(x: (center.x - bounds.width / 2).rounded() + bounds.width / 2,
+                             y: (center.y - bounds.height / 2).rounded() + bounds.height / 2)
         }
         var updated = layer
         updated.transform = layer.transform
