@@ -211,6 +211,36 @@ final class StoreTests: XCTestCase {
                        "undoing the crop re-centres the restored canvas too")
     }
 
+    func testTrimTransparentPixelsIsOneStep() {
+        let (store, um) = makeStore() // 100×100 squares at (0,40) and (120,40) on 400×300
+        let originalTransforms = store.document.layers.map(\.transform)
+        XCTAssertTrue(store.canTrim)
+
+        commitGrouped(um) { store.trim(basedOn: .transparentPixels, sides: TrimBounds.Sides()) }
+        XCTAssertEqual(store.document.canvasSize, CGSize(width: 220, height: 100))
+        XCTAssertEqual(store.document.layers[1].transform.tx, originalTransforms[1].tx)
+        XCTAssertEqual(store.document.layers[1].transform.ty, originalTransforms[1].ty - 40)
+        XCTAssertEqual(um.undoActionName, "Trim")
+
+        // Already trimmed: a no-op, not a history entry.
+        let entryCount = store.historyEntries.count
+        store.trim(basedOn: .transparentPixels, sides: TrimBounds.Sides())
+        XCTAssertEqual(store.historyEntries.count, entryCount)
+
+        um.undo()
+        XCTAssertEqual(store.document.canvasSize, CGSize(width: 400, height: 300))
+        XCTAssertEqual(store.document.layers.map(\.transform), originalTransforms)
+    }
+
+    func testTrimIgnoresHiddenLayers() {
+        let (base, _) = makeStore()
+        var hidden = base.document.layers[1]
+        hidden.isVisible = false
+        let store = DocumentStore(document: base.document.replacingLayer(hidden))
+        store.trim(basedOn: .transparentPixels, sides: TrimBounds.Sides())
+        XCTAssertEqual(store.document.canvasSize, CGSize(width: 100, height: 100))
+    }
+
     func testCropToSelectionIsOneUndoableStepAndKeepsTheSelection() {
         let (store, um) = makeStore()
         let originalTransforms = store.document.layers.map(\.transform)

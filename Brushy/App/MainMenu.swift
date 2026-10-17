@@ -134,6 +134,8 @@ enum MainMenuBuilder {
         // without a shortcut; ⌘K is the common custom binding.
         image.addItem(withTitle: "Crop",
                       action: #selector(BrushyDocument.cropToSelection(_:)), keyEquivalent: "k")
+        image.addItem(withTitle: "Trim…",
+                      action: #selector(BrushyDocument.showTrim(_:)), keyEquivalent: "")
         main.addItem(submenu: image, title: "Image")
 
         // Layer

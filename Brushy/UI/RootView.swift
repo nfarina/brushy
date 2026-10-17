@@ -67,6 +67,9 @@ struct RootView: View {
         .sheet(isPresented: $store.canvasSizeRequested) {
             CanvasSizeSheet(store: store)
         }
+        .sheet(isPresented: $store.trimRequested) {
+            TrimSheet(store: store)
+        }
         .sheet(isPresented: $store.fillRequested) {
             FillSheet(store: store)
         }

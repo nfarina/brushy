@@ -55,12 +55,19 @@ enum DebugSnapshot {
                 }
                 return
             }
-            // BRUSHY_SNAPSHOT_STATE=imagesizewindow: the Image Size dialog in a
-            // real window of its own, captured the same way.
-            if ProcessInfo.processInfo.environment["BRUSHY_SNAPSHOT_STATE"] == "imagesizewindow" {
-                let dialog = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 360, height: 250),
+            // BRUSHY_SNAPSHOT_STATE=imagesizewindow / trimwindow: that dialog in
+            // a real window of its own, captured the same way.
+            let windowDialogs: [String: (AnyView, CGSize)] = [
+                "imagesizewindow": (AnyView(ImageSizeSheet(store: document.store)),
+                                    CGSize(width: 360, height: 250)),
+                "trimwindow": (AnyView(TrimSheet(store: document.store)),
+                               CGSize(width: 300, height: 240)),
+            ]
+            if let state = ProcessInfo.processInfo.environment["BRUSHY_SNAPSHOT_STATE"],
+               let (view, size) = windowDialogs[state] {
+                let dialog = NSWindow(contentRect: CGRect(origin: .zero, size: size),
                                       styleMask: [.titled], backing: .buffered, defer: false)
-                dialog.contentView = NSHostingView(rootView: ImageSizeSheet(store: document.store))
+                dialog.contentView = NSHostingView(rootView: view)
                 dialog.center()
                 dialog.makeKeyAndOrderFront(nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

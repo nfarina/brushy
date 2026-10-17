@@ -80,20 +80,28 @@ struct Viewport: Equatable {
         hasUserAdjusted = true
     }
 
-    /// Where arriving content centres (§4): the middle of the part of the
-    /// canvas currently on screen, so a paste lands where you are looking.
-    /// Falls back to the canvas centre before the first layout, or when the
-    /// canvas is panned entirely out of view.
-    func visibleCanvasCenter(canvasSize: CGSize) -> CGPoint {
-        let canvasCenter = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+    /// The part of the canvas currently on screen, in canvas space, or nil
+    /// before the first layout or when the canvas is panned entirely out of
+    /// view.
+    func visibleCanvasRect(canvasSize: CGSize) -> CGRect? {
         guard isInitialized, viewSize.width > 0, viewSize.height > 0, zoom > 0 else {
-            return canvasCenter
+            return nil
         }
         let a = fromView(.zero)
         let b = fromView(CGPoint(x: viewSize.width, y: viewSize.height))
         let visible = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
             .intersection(CGRect(origin: .zero, size: canvasSize))
-        guard !visible.isNull, visible.width > 0, visible.height > 0 else { return canvasCenter }
+        guard !visible.isNull, visible.width > 0, visible.height > 0 else { return nil }
+        return visible
+    }
+
+    /// Where arriving content centres (§4): the middle of the part of the
+    /// canvas currently on screen, so a paste lands where you are looking.
+    /// Falls back to the canvas centre when nothing of it is on screen.
+    func visibleCanvasCenter(canvasSize: CGSize) -> CGPoint {
+        guard let visible = visibleCanvasRect(canvasSize: canvasSize) else {
+            return CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        }
         return CGPoint(x: visible.midX, y: visible.midY)
     }
 

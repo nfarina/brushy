@@ -257,6 +257,11 @@ final class DocumentStore: ObservableObject {
     @Published var canvasSizeRequested = false
     @Published var fillRequested = false
     @Published var selectionModifyRequested: SelectionModifyKind?
+    /// Image > Trim… sheet, and its last-used settings (remembered for the
+    /// window's lifetime, like the Modify amounts).
+    @Published var trimRequested = false
+    var trimBasis = TrimBounds.Basis.transparentPixels
+    var trimSides = TrimBounds.Sides()
     /// An effect the effects panel should expand and scroll to — set by the
     /// Layer Style menu items and the fx badge, consumed by the panel. The
     /// token makes a repeat request for the same effect still register.
@@ -2076,6 +2081,38 @@ final class DocumentStore: ObservableObject {
               rect != document.canvasRect else { return }
         let shift = CGAffineTransform(translationX: -rect.minX, y: -rect.minY)
         commit("Crop", document: document.cropped(to: rect),
+               selection: selection.transformed(by: shift))
+        if activeTool == .crop {
+            cropSession = CropSession(rect: document.canvasRect)
+        }
+    }
+
+    var canTrim: Bool {
+        document.layers.contains { document.isEffectivelyVisible(layerID: $0.id) }
+    }
+
+    /// Image > Trim…: crops away the empty edges of the rendered composite —
+    /// transparent pixels, or pixels matching a corner's colour — on the
+    /// chosen sides (Photoshop's Trim). Effects count (it reads the
+    /// composite, §3/§7); hidden layers don't. Otherwise behaves exactly
+    /// like `cropToSelection`.
+    func trim(basedOn basis: TrimBounds.Basis, sides: TrimBounds.Sides) {
+        guard !blockedByQuickMask else { return }
+        commitPendingSessions()
+        guard let composite = RenderEngine.shared.renderFlattenedRegion(
+                  document: document, croppedTo: document.canvasRect) else { return }
+        guard let content = TrimBounds.contentRect(of: composite, basis: basis) else {
+            showToast("Nothing to trim around")
+            return
+        }
+        let rect = TrimBounds.trimmedRect(canvas: document.canvasRect, content: content,
+                                          sides: sides)
+        guard rect != document.canvasRect else {
+            showToast("Nothing to trim")
+            return
+        }
+        let shift = CGAffineTransform(translationX: -rect.minX, y: -rect.minY)
+        commit("Trim", document: document.cropped(to: rect),
                selection: selection.transformed(by: shift))
         if activeTool == .crop {
             cropSession = CropSession(rect: document.canvasRect)

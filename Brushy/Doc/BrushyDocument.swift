@@ -90,6 +90,10 @@ final class BrushyDocument: NSDocument {
         store.canvasSizeRequested = true
     }
     @objc func cropToSelection(_ sender: Any?) { store.cropToSelection() }
+    @objc func showTrim(_ sender: Any?) {
+        store.commitPendingSessions()
+        store.trimRequested = true
+    }
     @objc func freeTransform(_ sender: Any?) { store.enterTransformMode() }
     @objc func newPaintLayer(_ sender: Any?) { store.addPaintLayer() }
     @objc func flipHorizontal(_ sender: Any?) { store.flipSelectedLayer(vertical: false) }
@@ -222,6 +226,7 @@ final class BrushyDocument: NSDocument {
     private static let actionsDisabledDuringTextEditing: Set<Selector> = [
         #selector(freeTransform(_:)), #selector(transformSelection(_:)),
         #selector(selectSubject(_:)), #selector(cropToSelection(_:)),
+        #selector(showTrim(_:)),
         #selector(duplicateLayer(_:)),
         #selector(duplicateLayerToDocument(_:)), #selector(duplicateLayerToNewDocument(_:)),
         #selector(deleteLayer(_:)), #selector(mergeDown(_:)), #selector(rasterizeLayer(_:)),
@@ -346,6 +351,8 @@ final class BrushyDocument: NSDocument {
             return true
         case #selector(cropToSelection(_:)):
             return store.canCropToSelection
+        case #selector(showTrim(_:)):
+            return store.canTrim
         case #selector(exportFlattened(_:)):
             return !store.document.layers.isEmpty
         // View-furniture toggles: always enabled; validation doubles
