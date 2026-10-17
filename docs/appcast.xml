@@ -6,6 +6,21 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.11</title>
+            <pubDate>Sat, 17 Oct 2026 13:16:30 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.11</sparkle:fullReleaseNotesLink>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>0.2.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- New **Image ▸ Trim…**, as in Photoshop: crop away empty edges based on transparent pixels or the top-left/bottom-right pixel's colour, choosing which sides to trim.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.11/Brushy-macos.zip" length="5816835" type="application/octet-stream" sparkle:edSignature="KnOh2qdKoCGtWwJ4MkoWRM4lJcWWLoohKlO+GXTZXIbljMxDTT+ZDOEUYudHBbPMQpBstGJm2DD81KNWD7aeCw=="/>
+        </item>
+        <item>
             <title>0.2.10</title>
             <pubDate>Wed, 14 Oct 2026 17:31:27 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -35,21 +50,6 @@
 - Selection outlines (marching ants) are now crisp at every zoom level, instead of blurring between screen pixels.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.9/Brushy-macos.zip" length="5795584" type="application/octet-stream" sparkle:edSignature="ULxcLGXM4fvRIclD1Y5saH29cH0WBabYZipL+UsgT98Pm/Bve18WpX7xGwNI7huNp5MnltOGohYOQkrdjvRwBg=="/>
-        </item>
-        <item>
-            <title>0.2.8</title>
-            <pubDate>Sat, 03 Oct 2026 13:38:14 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.8</sparkle:fullReleaseNotesLink>
-            <sparkle:version>10</sparkle:version>
-            <sparkle:shortVersionString>0.2.8</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Marquee, lasso and magic wand: arrow keys nudge the selection by 1 px, or 10 px with ⇧, without moving any pixels, as in Photoshop.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.8/Brushy-macos.zip" length="5794208" type="application/octet-stream" sparkle:edSignature="9dKP3ZjOJJZgW+7edSCntSulhhZfgJU0GicYLtRNBMfe7KXk6S8CO2z5rYdcuAoCX0Cx3TAnm9oj2+yZo0/GCg=="/>
         </item>
     </channel>
 </rss>
