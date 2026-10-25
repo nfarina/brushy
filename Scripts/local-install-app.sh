@@ -16,11 +16,6 @@ ENTITLEMENTS_PATH="Scripts/distribution-entitlements.plist"
 
 cd "$(dirname "$0")/.."
 
-command -v trash >/dev/null 2>&1 || {
-  echo "The 'trash' CLI is required. Install with: brew install trash" >&2
-  exit 1
-}
-
 SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
 if [ -z "${SIGNING_IDENTITY}" ]; then
   SIGNING_IDENTITY="$(security find-identity -v -p codesigning \
@@ -107,14 +102,16 @@ codesign --verify --deep --strict --verbose=2 "${APP_PATH}" >/dev/null
 
 echo "Stopping any running ${SCHEME}…"
 pkill -x "${SCHEME}" 2>/dev/null || true
+for _ in {1..50}; do pgrep -x "${SCHEME}" >/dev/null || break; sleep 0.1; done
 
-if [ -e "${INSTALL_PATH}" ]; then
-  echo "Trashing old ${INSTALL_PATH}…"
-  trash "${INSTALL_PATH}"
-fi
-
+# Updated in place rather than swapped for a new bundle: a bundle moved to the
+# Trash can stay referenced by macOS (a still-exiting process, LaunchServices)
+# and get relaunched or named in place of the new one. rsync writes each file
+# under a temporary name and renames it into place, and --delete drops files
+# the new build no longer has.
 echo "Installing to ${INSTALL_PATH}…"
-cp -R "${APP_PATH}" /Applications/
+rsync -a --delete "${APP_PATH}/" "${INSTALL_PATH}/"
+codesign --verify --deep --strict "${INSTALL_PATH}"
 
 echo "Launching ${INSTALL_PATH}…"
 open "${INSTALL_PATH}"
