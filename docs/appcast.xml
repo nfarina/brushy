@@ -6,6 +6,23 @@
         <description>Updates for Brushy</description>
         <language>en</language>
         <item>
+            <title>0.2.12</title>
+            <pubDate>Mon, 26 Oct 2026 13:19:23 -0700</pubDate>
+            <link>https://nfarina.github.io/brushy</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.12</sparkle:fullReleaseNotesLink>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>0.2.12</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## What's new
+
+- New **Redact** tool (R) for hiding parts of screenshots. Drag a box of any size, or paint, to cover it in chunky pixel blocks or a solid colour.
+- Pixelated blocks are shuffled by default, so the hidden text can't be reconstructed, while it still looks like ordinary pixelation.
+- Redactions go on their own "Redactions" layer above the screenshot. Share an exported or flattened copy, since the layered file still contains the original.
+]]></description>
+            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.12/Brushy-macos.zip" length="5783229" type="application/octet-stream" sparkle:edSignature="SibN7buyJNJRQoYGIwAyrHorzolump+zSNg1T8U6kOGmwHlVCAGTS6FtZuJChPmy95VZLieIAaoZ/XIxYXgrAQ=="/>
+        </item>
+        <item>
             <title>0.2.11</title>
             <pubDate>Sat, 17 Oct 2026 13:16:30 -0700</pubDate>
             <link>https://nfarina.github.io/brushy</link>
@@ -34,22 +51,6 @@
 - Pasted and placed images now appear in the middle of what you're looking at, instead of the middle of the canvas, so you can always see what you just pasted when you're zoomed in.
 ]]></description>
             <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.10/Brushy-macos.zip" length="5795792" type="application/octet-stream" sparkle:edSignature="hfE9bAkzEFjGiagGoCRsILEbFKRibcLiwQhFjkNN81IezyA9EEuFhw1H7YYfIJ1kZU8+Wb405LBiTB0F2+zJDQ=="/>
-        </item>
-        <item>
-            <title>0.2.9</title>
-            <pubDate>Mon, 12 Oct 2026 09:24:46 -0700</pubDate>
-            <link>https://nfarina.github.io/brushy</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/nfarina/brushy/releases/tag/v0.2.9</sparkle:fullReleaseNotesLink>
-            <sparkle:version>11</sparkle:version>
-            <sparkle:shortVersionString>0.2.9</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## What's new
-
-- Painting, filling or running a gradient on a paint layer that was enlarged (by Image Size or Free Transform) no longer comes out blurry. The layer is resampled to canvas resolution first, as its own undo step.
-- Selection outlines (marching ants) are now crisp at every zoom level, instead of blurring between screen pixels.
-]]></description>
-            <enclosure url="https://github.com/nfarina/brushy/releases/download/v0.2.9/Brushy-macos.zip" length="5795584" type="application/octet-stream" sparkle:edSignature="ULxcLGXM4fvRIclD1Y5saH29cH0WBabYZipL+UsgT98Pm/Bve18WpX7xGwNI7huNp5MnltOGohYOQkrdjvRwBg=="/>
         </item>
     </channel>
 </rss>
