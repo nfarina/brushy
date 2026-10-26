@@ -13,6 +13,7 @@ enum Tool: String, CaseIterable, Identifiable {
     case gradient     // mask ramps (two-photo blends) are the headline use
     case text
     case shape
+    case redact       // pixelate (shuffled) or solid blocks over screenshots
 
     var id: String { rawValue }
 
@@ -29,6 +30,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .gradient: return "Gradient"
         case .text: return "Text"
         case .shape: return "Shape"
+        case .redact: return "Redact"
         }
     }
 
@@ -45,6 +47,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .gradient: return "G"
         case .text: return "T"
         case .shape: return "U"
+        case .redact: return "R"
         }
     }
 
@@ -61,6 +64,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .gradient: return "square.lefthalf.filled"
         case .text: return "textformat"
         case .shape: return "square.on.circle"
+        case .redact: return "checkerboard.rectangle"
         }
     }
 

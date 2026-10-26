@@ -86,6 +86,9 @@ final class CanvasOverlayView: NSView {
         if let shapePath = store.previewShapePath {
             drawShapePreview(shapePath, viewport: viewport)
         }
+        if let redaction = store.previewRedactionPath {
+            drawRedactionPreview(redaction, viewport: viewport)
+        }
         if let line = store.previewGradientLine {
             drawGradientLine(line, viewport: viewport)
         }
@@ -145,6 +148,19 @@ final class CanvasOverlayView: NSView {
     }
 
     /// Rubber-band outline while dragging out a new shape.
+    /// The blocks a Redact drag will cover: a translucent wash with a
+    /// contrasting outline, so it reads on light and dark screenshots alike.
+    private func drawRedactionPreview(_ canvasPath: CGPath, viewport: Viewport) {
+        var transform = viewport.viewTransform
+        guard let viewPath = canvasPath.copy(using: &transform) else { return }
+        let path = NSBezierPath(cgPath: viewPath)
+        NSColor.systemPink.withAlphaComponent(0.35).setFill()
+        path.fill()
+        NSColor.black.withAlphaComponent(0.5).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
     private func drawShapePreview(_ canvasPath: CGPath, viewport: Viewport) {
         var transform = viewport.viewTransform
         guard let viewPath = canvasPath.copy(using: &transform) else { return }

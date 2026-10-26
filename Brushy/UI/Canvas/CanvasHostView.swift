@@ -355,6 +355,7 @@ final class CanvasHostView: NSView {
         case "u": store.activeTool = .shape
         case "i": store.activeTool = .eyedropper
         case "g": store.activeTool = .gradient
+        case "r": store.activeTool = .redact
         case "q": store.toggleQuickMask()
         case "x": store.swapBrushColors()
         case "d": store.resetBrushColors()

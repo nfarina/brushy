@@ -61,6 +61,9 @@ final class CanvasController {
         case sampleColor(transient: Bool)
         case shapeNew(startCanvas: CGPoint)
         case gradientDrag(startCanvas: CGPoint)
+        /// Redact: Box fits blocks to the drag rect; Brush unions grid cells
+        /// along each segment from `last` into `cells`.
+        case redact(startCanvas: CGPoint, last: CGPoint, cells: Set<Redaction.Cell>)
         // Ruler-guide gestures: dragging out a new guide from a
         // ruler (`original` nil) or moving an existing one. `base` is the
         // document before the gesture — live updates rebuild from it, so the
@@ -262,8 +265,31 @@ final class CanvasController {
             drag = .shapeNew(startCanvas: canvasPoint)
         case .gradient:
             drag = .gradientDrag(startCanvas: canvasPoint)
+        case .redact:
+            let cells = store.redactStyle == .brush ? brushCells(canvasPoint, canvasPoint) : []
+            drag = .redact(startCanvas: canvasPoint, last: canvasPoint, cells: cells)
+            store.previewRedactionPath = redactionBlocks(start: canvasPoint, end: canvasPoint,
+                                                         cells: cells).map(Redaction.path(of:))
         }
     }
+
+    /// The blocks a Redact drag covers: Box fits them to the dragged rect
+    /// exactly; Brush takes its grid cells.
+    private func redactionBlocks(start: CGPoint, end: CGPoint,
+                                 cells: Set<Redaction.Cell>) -> [CGRect]? {
+        let canvasSize = store.document.canvasSize
+        let blocks = store.redactStyle == .brush
+            ? Redaction.blocks(of: cells, blockSize: store.redactBlockSize, canvasSize: canvasSize)
+            : Redaction.blocks(fitting: CGRect.aabb(of: [start, end]),
+                               blockSize: store.redactBlockSize, canvasSize: canvasSize)
+        return blocks.isEmpty ? nil : blocks
+    }
+
+    private func brushCells(_ from: CGPoint, _ to: CGPoint) -> Set<Redaction.Cell> {
+        Redaction.cells(alongSegment: from, to, widthInBlocks: store.redactBrushWidth,
+                        blockSize: store.redactBlockSize, canvasSize: store.document.canvasSize)
+    }
+
 
     /// Mouse-down on a ruler: starts dragging out a new guide — the
     /// top ruler makes horizontal guides, the left ruler vertical ones, like
@@ -456,6 +482,13 @@ final class CanvasController {
             } else {
                 store.addShapeLayer(dragRect: CGRect.aabb(of: [startCanvas, endCanvas]),
                                     lineFrom: nil, lineTo: nil)
+            }
+
+        case .redact(let startCanvas, _, let cells):
+            store.previewRedactionPath = nil
+            if let blocks = redactionBlocks(start: startCanvas, end: viewport.fromView(viewPoint),
+                                            cells: cells) {
+                store.redact(blocks: blocks)
             }
 
         case .gradientDrag(let startCanvas):
@@ -779,6 +812,14 @@ final class CanvasController {
                 start: startCanvas,
                 end: constrainedGradientEnd(from: startCanvas, to: canvasPoint))
 
+        case .redact(let startCanvas, let last, var cells):
+            if store.redactStyle == .brush {
+                cells.formUnion(brushCells(last, canvasPoint))
+            }
+            self.drag = .redact(startCanvas: startCanvas, last: canvasPoint, cells: cells)
+            store.previewRedactionPath = redactionBlocks(start: startCanvas, end: canvasPoint,
+                                                         cells: cells).map(Redaction.path(of:))
+
         case .guide(let id, let baseAxis, let original, let base):
             // ⌥ mid-drag toggles the guide's orientation (Photoshop parity);
             // rebuilding from `base` each event keeps the gesture atomic.
@@ -1009,7 +1050,7 @@ final class CanvasController {
             return Cursors.dot // the overlay draws the live size ring
         case .text:
             return .iBeam
-        case .shape, .gradient:
+        case .shape, .gradient, .redact:
             return .crosshair
         }
     }

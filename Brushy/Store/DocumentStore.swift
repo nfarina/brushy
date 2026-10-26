@@ -214,6 +214,15 @@ final class DocumentStore: ObservableObject {
     @Published var shapeStyle = Defaults.value(Defaults.Keys.shapeStyle)
     /// Rubber-band outline while dragging out a shape, canvas space.
     @Published var previewShapePath: CGPath?
+
+    // Redact tool (§5). Per window and not persisted, like the gradient options.
+    @Published var redactMode: Redaction.Mode = .pixelate
+    @Published var redactStyle: Redaction.Style = .box
+    @Published var redactBlockSize = 20
+    @Published var redactShuffle = true
+    @Published var redactBrushWidth = 2 // blocks
+    /// The blocks a Redact drag would cover, canvas space.
+    @Published var previewRedactionPath: CGPath?
     /// Live in-place text editing (§ inline text). The document is NEVER
     /// mutated during a session — the canvas hides the layer via a renderer
     /// exclusion and an NSTextView overlay shows the live text; commit
@@ -2116,6 +2125,106 @@ final class DocumentStore: ObservableObject {
                selection: selection.transformed(by: shift))
         if activeTool == .crop {
             cropSession = CropSession(rect: document.canvasRect)
+        }
+    }
+
+    // MARK: - Redact
+
+    static let redactionsLayerName = "Redactions"
+
+    /// Redact tool: writes `blocks` (whole-pixel canvas rects) into the "Redactions" paint layer at the
+    /// top of the stack, creating it when the top layer isn't one — the
+    /// screenshot underneath is never painted (invariant 5). Pixelate samples
+    /// the composite as it looks now; the selection does not clip it (a
+    /// redaction is whole blocks by definition). One "Redact" history entry.
+    func redact(blocks: [CGRect]) {
+        guard !blockedByQuickMask else { return }
+        commitPendingSessions()
+        let canvasSize = document.canvasSize
+        guard let region = Redaction.bounds(of: blocks) else { return }
+        var doc = document
+        let target: Layer
+        let created: Bool
+        if let top = doc.layers.last, Self.isRedactionsLayer(top, canvasSize: canvasSize) {
+            target = top
+            created = false
+        } else {
+            guard let blank = Self.blankPaintLayer(canvasSize: canvasSize,
+                                                   name: Self.redactionsLayerName) else { return }
+            doc.layers.append(blank)
+            target = blank
+            created = true
+        }
+
+        let width = Int(canvasSize.width), height = Int(canvasSize.height)
+        guard let canvasContext = CGContext(data: nil, width: width, height: height,
+                                            bitsPerComponent: 8, bytesPerRow: 0,
+                                            space: BrushyColorSpace.displayP3,
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let canvasBytes = canvasContext.data else { return }
+        canvasContext.setBlendMode(.copy)
+        canvasContext.draw(target.source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let canvasBuffer = Redaction.Buffer(bytes: canvasBytes,
+                                            bytesPerRow: canvasContext.bytesPerRow,
+                                            canvasRect: document.canvasRect)
+
+        var compositeContext: CGContext?
+        if redactMode == .pixelate {
+            guard let composite = RenderEngine.shared.renderFlattenedRegion(
+                      document: document, croppedTo: region),
+                  let ctx = CGContext(data: nil, width: composite.width, height: composite.height,
+                                      bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: BrushyColorSpace.displayP3,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return }
+            ctx.setBlendMode(.copy)
+            ctx.draw(composite, in: CGRect(x: 0, y: 0, width: composite.width, height: composite.height))
+            compositeContext = ctx
+        }
+        let compositeBuffer = compositeContext.flatMap { ctx in
+            ctx.data.map { Redaction.Buffer(bytes: $0, bytesPerRow: ctx.bytesPerRow, canvasRect: region) }
+        }
+        var rng = SystemRandomNumberGenerator()
+        Redaction.apply(blocks: blocks, mode: redactMode, shuffle: redactShuffle,
+                        solid: Self.premultipliedP3Bytes(of: foregroundColor),
+                        composite: compositeBuffer, into: canvasBuffer, using: &rng)
+        guard let pixels = canvasContext.makeImage() else { return }
+
+        // Fresh sourceID: new pixels (invariant 4).
+        let redacted = Layer(id: target.id, sourceID: UUID(), name: target.name, source: pixels,
+                             transform: target.transform, opacity: target.opacity,
+                             isVisible: target.isVisible, mask: target.mask, isPaintable: true,
+                             kind: .raster, blendMode: target.blendMode,
+                             isClippedToBelow: target.isClippedToBelow, groupID: target.groupID,
+                             effects: target.effects)
+        selectedLayerID = redacted.id
+        selectedGroupID = nil
+        maskTargeted = false
+        commit("Redact", document: doc.replacingLayer(redacted))
+        if created {
+            // The original is still underneath — only flattened output is safe.
+            showToast("Redactions are a separate layer — share an exported or flattened copy, not the layered file")
+        }
+    }
+
+    /// Reused only while it is still a plain, untransformed, canvas-sized
+    /// paint layer at the top — anything else gets a fresh one above it.
+    static func isRedactionsLayer(_ layer: Layer, canvasSize: CGSize) -> Bool {
+        layer.name == redactionsLayerName && layer.isPaintable && layer.kind == .raster
+            && layer.isVisible && layer.opacity == 1 && layer.blendMode == .normal
+            && layer.transform == .identity && layer.mask == nil && layer.groupID == nil
+            && !layer.isClippedToBelow && !layer.effects.isActive
+            && layer.source.width == Int(canvasSize.width)
+            && layer.source.height == Int(canvasSize.height)
+    }
+
+    /// A UI colour (sRGB, §7) as premultiplied 8-bit Display P3 bytes.
+    static func premultipliedP3Bytes(of color: CGColor) -> [UInt8] {
+        let p3 = color.converted(to: BrushyColorSpace.displayP3, intent: .defaultIntent, options: nil)
+        let c = p3?.components ?? [0, 0, 0, 1]
+        let a = c.count >= 4 ? c[3] : 1
+        return [c[0] * a, c[1] * a, c[2] * a, a].map {
+            UInt8((min(max($0, 0), 1) * 255).rounded())
         }
     }
 

@@ -338,6 +338,7 @@ struct ToolOptionsBar: View {
                 case .gradient: gradientOptions
                 case .text: textOptions
                 case .shape: shapeOptions
+                case .redact: redactOptions
                 }
             }
             Spacer()
@@ -543,6 +544,57 @@ struct ToolOptionsBar: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+        }
+    }
+
+    private var redactOptions: some View {
+        HStack(spacing: 10) {
+            Picker("", selection: $store.redactMode) {
+                ForEach(Redaction.Mode.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 130)
+            .help("Pixelate averages each block of what's underneath; Solid fills blocks with the foreground colour")
+            Picker("", selection: $store.redactStyle) {
+                ForEach(Redaction.Style.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 100)
+            .help("Box: drag a rectangle. Brush: paint over what to hide.")
+            Divider().frame(height: 18)
+            Picker("Block", selection: $store.redactBlockSize) {
+                ForEach(Redaction.blockSizes, id: \.self) { Text("\($0) px").tag($0) }
+            }
+            .fixedSize()
+            .font(.caption)
+            .help("Block size. Chunkier blocks hide more.")
+            if store.redactStyle == .brush {
+                Stepper(value: $store.redactBrushWidth, in: 1...10) {
+                    Text("Width \(store.redactBrushWidth)")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+                .fixedSize()
+                .help("Brush width, in blocks")
+            }
+            Divider().frame(height: 18)
+            if store.redactMode == .pixelate {
+                Toggle(isOn: $store.redactShuffle) { Text("Shuffle Blocks") }
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                    .help("Scramble the blocks' order so pixelated text can't be reconstructed by matching guesses. Same look.")
+                if !store.redactShuffle {
+                    Text("Unshuffled pixelation of short text can sometimes be reversed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } else {
+                ColorChipButton(store: store, target: .foreground,
+                                help: "Fill colour — foreground (X swaps, D resets)")
             }
         }
     }

@@ -256,6 +256,19 @@ enum DebugSnapshot {
             store.endBrushStroke()
         case "eyedropper":
             store.activeTool = .eyedropper
+        case "redact":
+            // A shuffled pixelation across the upper middle, plus a live
+            // preview of a second box below it.
+            store.activeTool = .redact
+            let size = store.document.canvasSize
+            store.redact(blocks: Redaction.blocks(
+                fitting: CGRect(x: size.width * 0.2 + 3, y: size.height * 0.55 + 7,
+                                width: size.width * 0.6 - 11, height: size.height * 0.2 - 5),
+                blockSize: store.redactBlockSize, canvasSize: size))
+            store.previewRedactionPath = Redaction.path(of: Redaction.blocks(
+                fitting: CGRect(x: size.width * 0.3, y: size.height * 0.2,
+                                width: size.width * 0.4 + 7, height: size.height * 0.1 + 3),
+                blockSize: store.redactBlockSize, canvasSize: size))
         case "panelshidden":
             // Tab: only the canvas.
             store.panelsHidden = true
