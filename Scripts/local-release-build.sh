@@ -92,6 +92,15 @@ fi
 echo "Signing identity: ${SIGNING_IDENTITY}"
 echo "Team:             ${DEVELOPMENT_TEAM}"
 
+# The build product is a second registered copy of the app, and LaunchServices
+# can launch it in place of the installed one. The zip is the artifact, so drop
+# the bundle once it's zipped.
+remove_build_product() {
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -u "${APP_PATH}" 2>/dev/null || true
+  rm -rf "${APP_PATH}"
+}
+
 remove_signature_if_present() {
   local target="$1"
   if codesign --display --verbose=1 "${target}" >/dev/null 2>&1; then
@@ -185,6 +194,7 @@ ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
 
 if [ "${SKIP_NOTARIZE}" = "true" ]; then
   echo "Skipping notarization (per --skip-notarize)."
+  remove_build_product
   echo "Built: ${ZIP_PATH}"
   exit 0
 fi
@@ -222,6 +232,8 @@ xcrun stapler validate "${APP_PATH}"
 echo "Re-zipping stapled bundle…"
 rm -f "${ZIP_PATH}"
 ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
+
+remove_build_product
 
 echo
 echo "Done. Artifact ready for upload and appcast generation:"

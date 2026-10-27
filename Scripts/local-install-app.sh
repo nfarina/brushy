@@ -113,6 +113,13 @@ echo "Installing to ${INSTALL_PATH}…"
 rsync -a --delete "${APP_PATH}/" "${INSTALL_PATH}/"
 codesign --verify --deep --strict "${INSTALL_PATH}"
 
+# The build product is a second registered copy of the app, and LaunchServices
+# can launch it in place of the installed one (Spotlight, Open With, URL
+# handlers, app launchers). Unregister and delete it now that it's installed.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -u "${APP_PATH}" 2>/dev/null || true
+rm -rf "${APP_PATH}"
+
 echo "Launching ${INSTALL_PATH}…"
 open "${INSTALL_PATH}"
 
